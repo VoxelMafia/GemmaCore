@@ -2,6 +2,8 @@ import os
 import re
 import unicodedata
 from .base_skill import BaseSkill
+from datetime import datetime
+from config import REQUIRE_APPROVAL
 
 class FilesystemSkill(BaseSkill):
     def __init__(self, agent):
@@ -60,5 +62,21 @@ class FilesystemSkill(BaseSkill):
         """
         clean_name = self._slugify(title)
         filename = f"{clean_name}{extension}"
-        
-        return self.write_text(filename, content)
+        # Prepend front-matter metadata (author, date, short summary)
+        fm_author = "GemmaCore Agent"
+        fm_date = datetime.utcnow().isoformat()
+        fm_summary = title if title else ""
+        front_matter = f"---\nauthor: {fm_author}\ndate: {fm_date}\nsummary: {fm_summary}\n---\n\n"
+        full_content = front_matter + content
+
+        # Require operator approval before writing files when configured
+        if REQUIRE_APPROVAL and hasattr(self.agent, 'approval') and self.agent.approval:
+            try:
+                approved = self.agent.approval.request(f"Write file {filename} to workspace with title: {title}")
+            except Exception:
+                approved = False
+
+            if not approved:
+                return f"Write aborted by operator: {filename}"
+
+        return self.write_text(filename, full_content)

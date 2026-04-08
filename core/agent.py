@@ -29,3 +29,9 @@ class OperatorAgent:
         self.running = False
         self.loop.stop()
         log("Agent stopped")
+        # Best-effort cleanup of any running browser skill created by the loop
+        try:
+            if hasattr(self.loop, 'browser') and self.loop.browser:
+                self.loop.browser.close()
+        except:
+            pass

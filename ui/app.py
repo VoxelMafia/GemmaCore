@@ -1,86 +1,186 @@
 import tkinter as tk
-from tkinter import scrolledtext
-import threading # Use this to move the agent off the UI thread
+import customtkinter as ctk
+import threading
 from core.agent import OperatorAgent
+import config
 
-class App:
-    def __init__(self, root):
-        self.root = root
-        self.root.title("⚡ Operator Agent")
-        self.root.geometry("900x600")
+# Set the appearance and theme
+ctk.set_appearance_mode("Dark")
+ctk.set_default_color_theme("blue") 
+
+class App(ctk.CTk):
+    def __init__(self):
+        super().__init__()
+
+        self.title("⚡ Operator Agent")
+        self.geometry("1000x700")
+        self.configure(fg_color="#121212") # Deep dark background
 
         self.agent = OperatorAgent(self)
+        self.is_awaiting_approval = False
+
         self.build_ui()
+        # Ensure we shut down background agents and browser when the GUI closes
+        self.protocol("WM_DELETE_WINDOW", self.on_closing)
 
     def build_ui(self):
-        top = tk.Frame(self.root)
-        top.pack(fill="x")
+        # --- Main Layout ---
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(1, weight=1)
 
-        self.entry = tk.Entry(top, font=("Arial", 14))
-        self.entry.pack(fill="x", padx=10, pady=5)
+        # 1. Top Search Bar Area
+        self.search_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.search_frame.grid(row=0, column=0, padx=30, pady=(30, 10), sticky="ew")
+        
+        self.entry = ctk.CTkEntry(
+            self.search_frame, 
+            placeholder_text="Enter your goal (e.g., 'Research Bitcoin mining')...",
+            height=50, 
+            corner_radius=15,
+            border_width=0,
+            fg_color="#2a2a2a",
+            font=("Inter", 15)
+        )
+        self.entry.pack(fill="x", side="left", expand=True)
 
-        btns = tk.Frame(self.root)
-        btns.pack()
+        # 2. Log/Console Area
+        self.logbox = ctk.CTkTextbox(
+            self, 
+            font=("Consolas", 13), 
+            fg_color="#1a1a1a",
+            border_color="#333333",
+            border_width=1,
+            corner_radius=15
+        )
+        self.logbox.grid(row=1, column=0, padx=30, pady=10, sticky="nsew")
 
-        tk.Button(btns, text="START", bg="green", fg="white",
-                  command=self.start).pack(side="left", padx=5)
+        # 3. Bottom Interaction Card (The "Control Center")
+        self.control_card = ctk.CTkFrame(self, fg_color="#1e1e1e", corner_radius=20, height=150)
+        self.control_card.grid(row=2, column=0, padx=30, pady=30, sticky="ew")
+        
+        self.preview_label = ctk.CTkLabel(
+            self.control_card, 
+            text="Waiting for input...", 
+            font=("Inter", 12, "italic"),
+            text_color="#888888"
+        )
+        self.preview_label.pack(pady=(15, 5))
 
-        tk.Button(btns, text="STOP", bg="red", fg="white",
-                  command=self.agent.stop).pack(side="left", padx=5)
+        # The "Universal" Button
+        # Controls row: run button + auto-approve toggle
+        self.controls_frame = ctk.CTkFrame(self.control_card, fg_color="transparent")
+        self.controls_frame.pack(pady=(0, 20))
 
-        self.logbox = scrolledtext.ScrolledText(self.root, font=("Consolas", 10))
-        self.logbox.pack(fill="both", expand=True, padx=10, pady=10)
+        self.action_button = ctk.CTkButton(
+            self.controls_frame, 
+            text="GO", 
+            command=self.handle_action,
+            font=("Inter", 16, "bold"),
+            height=50,
+            width=200,
+            corner_radius=25,
+            fg_color="#3b82f6", # Modern Blue
+            hover_color="#2563eb"
+        )
+        self.action_button.pack(side="left", padx=(0, 12))
 
-        self.approval_label = scrolledtext.ScrolledText(self.root, height=4,
-                                   font=("Consolas", 10), wrap="word")
-        self.approval_label.pack(fill="x", padx=10, pady=5)
-        self.approval_label.configure(state="disabled", foreground="orange")
+        # Auto-approve toggle (initial state: enabled when REQUIRE_APPROVAL is False)
+        self.auto_approve_var = tk.BooleanVar(value=(not getattr(config, 'REQUIRE_APPROVAL', True)))
+        self.auto_switch = ctk.CTkSwitch(
+            self.controls_frame,
+            text="Auto-approve",
+            command=self._on_toggle_auto_approve,
+            variable=self.auto_approve_var
+        )
+        self.auto_switch.pack(side="left")
+        # Initialize ApprovalSystem auto-approve to match the switch
+        try:
+            self.agent.approval.set_auto_approve(bool(self.auto_approve_var.get()))
+        except Exception:
+            pass
 
-        approval_btns = tk.Frame(self.root)
-        approval_btns.pack()
-
-        tk.Button(approval_btns, text="APPROVE", bg="blue", fg="white",
-                  command=self.approve).pack(side="left", padx=5)
-
-        tk.Button(approval_btns, text="REJECT", bg="gray", fg="white",
-                  command=self.reject).pack(side="left", padx=5)
+    # --- Logic ---
 
     def log(self, msg):
-        # Thread-safe logging
-        self.root.after(0, lambda: self._safe_log(msg))
+        self.after(0, lambda: self._safe_log(msg))
 
     def _safe_log(self, msg):
-        self.logbox.insert(tk.END, msg + "\n")
-        self.logbox.see(tk.END)
+        self.logbox.insert("end", f" {msg}\n")
+        self.logbox.see("end")
 
-    def start(self):
+    def handle_action(self):
+        """Unified button logic"""
+        if self.is_awaiting_approval:
+            self.approve()
+        else:
+            self.start_agent()
+
+    def start_agent(self):
         goal = self.entry.get()
-        # Launching agent in a thread prevents the "Iteration 0" freeze
+        if not goal: return
+        
+        self.action_button.configure(state="disabled", text="RUNNING...", fg_color="#333333")
         threading.Thread(target=self.agent.start, args=(goal,), daemon=True).start()
 
     def ask_approval(self, action):
-        self.root.after(0, lambda: self._safe_ask_approval(action))
+        self.after(0, lambda: self._setup_approval_ui(action))
 
-    def _safe_ask_approval(self, action):
-        self.approval_label.configure(state="normal")
-        self.approval_label.delete("1.0", tk.END)
-        self.approval_label.insert(tk.END, f"Approve action:\n{action}")
-        self.approval_label.configure(state="disabled")
+    def _setup_approval_ui(self, action):
+        self.is_awaiting_approval = True
+        self.preview_label.configure(
+            text=f"CONFIRM ACTION: {action[:80]}...", 
+            text_color="#fbbf24" # Amber/Gold
+        )
+        self.action_button.configure(
+            state="normal", 
+            text="APPROVE COMMAND", 
+            fg_color="#10b981", # Emerald Green
+            hover_color="#059669"
+        )
 
     def approve(self):
-        self._clear_approval()
+        self.is_awaiting_approval = False
+        self.preview_label.configure(text="Action approved. Resuming...", text_color="#888888")
+        self.action_button.configure(text="RUNNING...", fg_color="#333333", state="disabled")
         self.agent.approval.approve()
 
-    def reject(self):
-        self._clear_approval()
-        self.agent.approval.reject()
+    def _on_toggle_auto_approve(self):
+        val = bool(self.auto_approve_var.get())
+        try:
+            self.agent.approval.set_auto_approve(val)
+        except Exception:
+            pass
 
-    def _clear_approval(self):
-        self.approval_label.configure(state="normal")
-        self.approval_label.delete("1.0", tk.END)
-        self.approval_label.configure(state="disabled")
+        # If we just enabled auto-approve while waiting, auto-approve the pending action
+        if val and self.is_awaiting_approval:
+            self.is_awaiting_approval = False
+            self.preview_label.configure(text="Action auto-approved. Resuming...", text_color="#888888")
+            self.action_button.configure(text="RUNNING...", fg_color="#333333", state="disabled")
+            try:
+                self.agent.approval.approve()
+            except Exception:
+                pass
+
+    def on_closing(self):
+        try:
+            # Ask the agent to stop and clean up any running skills (browser)
+            self.agent.stop()
+            # If the loop has created a browser skill, attempt to close it
+            try:
+                if hasattr(self.agent.loop, 'browser') and self.agent.loop.browser:
+                    self.agent.loop.browser.close()
+            except:
+                pass
+        finally:
+            self.destroy()
+
+    # You could add a small 'X' button or right-click menu to Reject if needed
+
+if __name__ == "__main__":
+    app = App()
+    app.mainloop()
 
 def run_app():
-    root = tk.Tk()
-    App(root) # Fixed Pylance "not accessed" warning
-    root.mainloop()
+    """Convenience entrypoint used by `main.py` to start the GUI."""
+    app = App()
+    app.mainloop()

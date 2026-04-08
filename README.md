@@ -29,6 +29,7 @@ GemmaCore is designed to:
 - [ChromaDB](https://www.trychroma.com/) (for persistent memory)
 - [Playwright](https://playwright.dev/python/) (for browser automation)
 - Tkinter (usually included with Python)
+ - customtkinter (used for the modernized UI)
 
 ### Installation
 1. **Clone the repository:**
@@ -42,6 +43,16 @@ GemmaCore is designed to:
    playwright install
    ```
    *(This will install all required Python packages. The `playwright install` command is still needed to set up browser drivers.)*
+
+**Note about `customtkinter`**
+
+The project UI uses `customtkinter` for a modern look-and-feel. If `customtkinter` is not present in your environment, install it with:
+
+```sh
+pip install customtkinter
+```
+
+On some platforms `tkinter` (the underlying toolkit) is provided by the OS or Python distribution; ensure it's available before launching the UI.
 
 3. **Configure Ollama:**
    - Ensure Ollama is running and the model in `config.py` (default: `gemma3:4b`) is available.
