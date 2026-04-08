@@ -14,6 +14,7 @@ class AgentLoop:
         self.iteration = 0
         self.attempted_urls = set()
         self.attempted_queries = set()
+        self.source_map = {} # { "canonical_url": "Snippet/Title" }
         self.consecutive_failures = 0
 
     def set_goal(self, goal):
@@ -60,6 +61,11 @@ class AgentLoop:
             else:
                 self.agent.ui.log(f"🚀 Approved. Navigating to: {target_url}")
                 result = self.browser.navigate(target_url)
+                # detect error-like results and register successful sources
+                error_keywords = ["timeout", "exceeded", "failed to load", "error", "404", "junk", "low quality"]
+                is_error = any(kw in str(result).lower() for kw in error_keywords)
+                if not is_error:
+                    self.source_map[target_url] = str(result)[:100].replace("\n", " ")
                 reflection = ask_llm(reflection_prompt("INITIAL_NAV", result, self.goal))
                 self.agent.memory.store(reflection)
                 self.iteration = 1
@@ -109,6 +115,11 @@ class AgentLoop:
                     # Record executed URL
                     self.attempted_urls.add(target_url)
                     result = self.browser.navigate(target_url)
+                    # detect error-like results and register successful sources
+                    error_keywords = ["timeout", "exceeded", "failed to load", "error", "404", "junk", "low quality"]
+                    is_error = any(kw in str(result).lower() for kw in error_keywords)
+                    if not is_error:
+                        self.source_map[target_url] = str(result)[:100].replace("\n", " ")
                 else:
                     result = "Error: NAVIGATE requested but no URL found in plan."
 
@@ -187,6 +198,12 @@ class AgentLoop:
         except Exception:
             pass
 
+        # Inject a static verified-sources section from recorded navigations
+        try:
+            final_content = self._inject_static_sources(final_content)
+        except Exception:
+            pass
+
         # Run final verification, metadata-to-body sync, and acronym checks
         try:
             final_content = self._verify_and_sync_report(final_content)
@@ -242,6 +259,19 @@ class AgentLoop:
             self.agent.ui.log(f"✅ {status}")
         except Exception as e:
             self.agent.ui.log(f"❌ Failed to write: {e}")
+
+    def _inject_static_sources(self, content_part):
+        """Append a verified 'Research Sources' section from recorded successful navigations."""
+        if not getattr(self, 'source_map', None):
+            return content_part
+
+        sources_md = "\n\n--- \n### ## Research Sources (Verified)\n"
+        for url, snippet in self.source_map.items():
+            # Use the URL as the display name for static reliability
+            safe_snip = (snippet or '').strip()
+            sources_md += f"* [{url}]({url}) - *{safe_snip}...*\n"
+
+        return content_part + sources_md
 
     def _smart_parse(self, plan):
         """Extracts the query from 'SEARCH: "query"' or falls back to first line."""

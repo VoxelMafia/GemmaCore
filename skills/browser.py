@@ -2,8 +2,6 @@ from playwright.sync_api import sync_playwright
 import random
 import time
 import re
-import json
-import os
 import urllib.parse
 from config import HEADLESS_BROWSER
 from ai.llm import ask_llm
