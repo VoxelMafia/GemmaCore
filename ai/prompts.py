@@ -1,12 +1,14 @@
-def planner_prompt(goal, memory_context="No research yet."):
+def planner_prompt(goal, memory_context="INITIAL_STATE: No research performed yet."):
     return f"""
 ### MISSION
-Autonomous Research Engine. Goal: {goal}
+Autonomous Research Engine. 
+TARGET_SUBJECT: {goal}
 
 ### UNIVERSAL PIVOT PROTOCOLS
-1. **DISCIPLINE SWAP:** If 2+ searches in one "Discipline" fail, you MUST switch to an "Opposing Discipline."
-2. **QUERY MUTATION (ANTI-LOOP):** Forbidden from repeating >2 keywords. If "Low Info Density" occurs, you MUST delete the failing keyword and replace it with a higher-level category or technical antonym.
-3. **SPECIFICITY ANCHOR (VENUE PIVOT):** If conceptual searches fail, you MUST search for the specific venue using site operators (e.g., "site:nature.com [Keywords]" or "site:science.org [Keywords]") or search for "[Keywords] 2024 DOI".
+1. **COLD START:** If memory is "INITIAL_STATE", search ONLY for the TARGET_SUBJECT. Do not add words.
+2. **DISCIPLINE SWAP:** If 2+ searches fail, switch to an "Opposing Discipline."
+3. **QUERY MUTATION:** Forbidden from repeating >2 keywords. Replace failing keywords with technical synonyms.
+4. **SPECIFICITY ANCHOR:** If conceptual searches fail, use site operators (e.g., "site:nature.com").
 
 ### TOOLS
 - SEARCH: query
@@ -17,8 +19,7 @@ Autonomous Research Engine. Goal: {goal}
 {memory_context}
 
 ### STRICT OUTPUT FORMAT
-THOUGHT: [Identify Discipline of failure. State the GAP. Declare Mutation Strategy (e.g., "Replacing 'Scythian' with 'Pontic Steppe site:nature.com'").]
-COMMAND: SEARCH: [Keywords Only]
+COMMAND: SEARCH: [Provide ONLY search keywords. Do NOT include the word "Goal" or the subject name label.]
 """
 
 def reflection_prompt(action, result, goal):
@@ -28,15 +29,15 @@ def reflection_prompt(action, result, goal):
     RAW DATA: {result}
 
     ### EXTRACTION & VALIDATION ENHANCEMENTS
-    1. **GAP ANALYSIS:** Identify exactly what is missing (e.g., "Missing specific 2024 aDNA haplogroups").
+    1. **GAP ANALYSIS:** Identify specific missing data (e.g., "Missing 2024 haplogroups").
     2. **EPR EXTRACTION:** - **Entity:** Concept/Object.
-       - **Property:** Numerical data + Units (Critical: Mark missing units as "Unverified [Value]").
+       - **Property:** Numerical data + Units (Mark missing as "Unverified [Value]").
        - **Relation:** Interaction/Causality.
-    3. **SOURCE AUDIT:** If results are empty, ads, or login walls, respond ONLY: "ERROR: Low Info Density".
+    3. **SOURCE AUDIT:** If results are ONLY ads, paywalls, or 404s, respond: "ERROR: Low Info Density". If partial data exists, extract it; do NOT trigger error.
 
     ### CRITICAL ALIGNMENT & INTEGRITY
-    - **SEMANTIC MATCH:** Check for Subject Drift, mark "ERROR: Subject Drift".
-    - **NO EXTRAPOLATION:** If no DOI/URL is found, citation MUST be 'THEORETICAL ESTIMATE - NO SOURCE FOUND'. Do not fabricate authors.
+    - **SEMANTIC MATCH:** Check for Subject Drift; if the data is unrelated to {goal}, mark "ERROR: Subject Drift".
+    - **NO EXTRAPOLATION:** If no DOI/URL exists, citation MUST be 'THEORETICAL ESTIMATE - NO SOURCE FOUND'.
 
     ### COMPRESSION FOR MEMORY DISTILLATION
     - FORMAT: Dense Key:Value pairs. NO prose. NO conversational filler.
@@ -48,6 +49,7 @@ def reflection_prompt(action, result, goal):
     - **CAUSALITY MAP:** [Driver] -> [Mechanism] -> [Effect]
     - **CITATION:** Formal entry.
     - **CONSISTENCY SIGNATURE:** [Confirms/Contradicts/No Prior Data]
-    - **VERBATIM CHECK:** If the GOAL requires a specific "Clause," "Law," or "Equation," you MUST find the verbatim text. If the text from Source A and Source B contradicts, you MUST label the data as "CONTRADICTORY - REQUIRES PRIMARY SOURCE VALIDATION."
+    - **VERBATIM CHECK:** Find verbatim text for Laws/Equations. If Source A and B contradict, label "CONTRADICTORY - REQUIRES PRIMARY SOURCE VALIDATION".
+    
     OUTPUT: Provide ONLY the structured data above.
     """
