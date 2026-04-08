@@ -5,10 +5,11 @@ Autonomous Research Engine.
 TARGET_SUBJECT: {goal}
 
 ### UNIVERSAL PIVOT PROTOCOLS
-1. **COLD START:** If memory is "INITIAL_STATE", search ONLY for the TARGET_SUBJECT. Do not add words.
-2. **DISCIPLINE SWAP:** If 2+ searches fail, switch to an "Opposing Discipline."
-3. **QUERY MUTATION:** Forbidden from repeating >2 keywords. Replace failing keywords with technical synonyms.
-4. **SPECIFICITY ANCHOR:** If conceptual searches fail, use site operators (e.g., "site:nature.com").
+1. **COLD START:** If memory is "INITIAL_STATE", search ONLY for the TARGET_SUBJECT verbatim. 
+2. **QUERY ATOMIZATION:** Use space-separated keywords. NEVER use quotation marks.
+3. **THRESHOLD OF SUFFICIENCY:** If memory contains a 'Causality Map' and 3+ 'EPR Data' points, you MUST stop searching and use WRITE_DOC immediately.
+4. **PULSE DEGRADATION:** If Iteration > 2, simplify to 2 broad keywords.
+5. **DISCIPLINE SWAP:** If 2+ searches yield "Low Info Density", switch to an "Opposing Discipline".
 
 ### TOOLS
 - SEARCH: query
@@ -18,8 +19,9 @@ TARGET_SUBJECT: {goal}
 ### DISTILLED RESEARCH MEMORY
 {memory_context}
 
-### STRICT OUTPUT FORMAT
-COMMAND: SEARCH: [Provide ONLY search keywords. Do NOT include the word "Goal" or the subject name label.]
+### STRICT OUTPUT FORMAT (MANDATORY)
+- If research is ongoing: COMMAND: SEARCH: [Keywords Only]
+- If Threshold of Sufficiency is met: COMMAND: WRITE_DOC: [Title] | CONTENT: [Final Synthesis of all EPR Data and Causality Maps. Do NOT include JSON formatting.]
 """
 
 def reflection_prompt(action, result, goal):
@@ -29,19 +31,17 @@ def reflection_prompt(action, result, goal):
     RAW DATA: {result}
 
     ### EXTRACTION & VALIDATION ENHANCEMENTS
-    1. **GAP ANALYSIS:** Identify specific missing data (e.g., "Missing 2024 haplogroups").
-    2. **EPR EXTRACTION:** - **Entity:** Concept/Object.
-       - **Property:** Numerical data + Units (Mark missing as "Unverified [Value]").
-       - **Relation:** Interaction/Causality.
-    3. **SOURCE AUDIT:** If results are ONLY ads, paywalls, or 404s, respond: "ERROR: Low Info Density". If partial data exists, extract it; do NOT trigger error.
+    1. **GAP ANALYSIS:** Identify the specific missing variable.
+    2. **EPR EXTRACTION:** - **Entity:** Concept/Object. - **Property:** Numerical data + Units. - **Relation:** Interaction/Causality.
+    3. **SOURCE AUDIT:** If results are empty/ads, respond: "ERROR: Low Info Density".
 
     ### CRITICAL ALIGNMENT & INTEGRITY
-    - **SEMANTIC MATCH:** Check for Subject Drift; if the data is unrelated to {goal}, mark "ERROR: Subject Drift".
+    - **SEMANTIC MATCH:** If result is unrelated to {goal}, respond "ERROR: Subject Drift".
     - **NO EXTRAPOLATION:** If no DOI/URL exists, citation MUST be 'THEORETICAL ESTIMATE - NO SOURCE FOUND'.
 
     ### COMPRESSION FOR MEMORY DISTILLATION
-    - FORMAT: Dense Key:Value pairs. NO prose. NO conversational filler.
-    - RETAIN: DOIs, URLs, and specific dates.
+    - FORMAT: Dense Key:Value pairs. NO prose.
+    - RETAIN: All DOIs, URLs, and Verbatim Clauses.
 
     ### SCIENTIFIC INTEGRITY OUTPUT
     - **GAP IDENTIFIED:** [Specific noun/number needed]
@@ -49,7 +49,7 @@ def reflection_prompt(action, result, goal):
     - **CAUSALITY MAP:** [Driver] -> [Mechanism] -> [Effect]
     - **CITATION:** Formal entry.
     - **CONSISTENCY SIGNATURE:** [Confirms/Contradicts/No Prior Data]
-    - **VERBATIM CHECK:** Find verbatim text for Laws/Equations. If Source A and B contradict, label "CONTRADICTORY - REQUIRES PRIMARY SOURCE VALIDATION".
+    - **VERBATIM CHECK:** If Source A and B contradict, label "CONTRADICTORY - REQUIRES PRIMARY SOURCE VALIDATION".
     
     OUTPUT: Provide ONLY the structured data above.
     """
