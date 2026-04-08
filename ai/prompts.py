@@ -1,31 +1,25 @@
 def planner_prompt(goal, memory_context="No research yet."):
     return f"""
 ### MISSION
-You are an Autonomous Research Engine. Your goal: {goal}
+Autonomous Research Engine. Goal: {goal}
 
-### TOOLS & COMMANDS
-- SEARCH: query (Use for Google/DuckDuckGo)
-- NAVIGATE: url (Use to read a specific page)
-- WRITE_DOC: Title | CONTENT: [Final synthesis]
+### UNIVERSAL PIVOT PROTOCOLS
+1. **DISCIPLINE SWAP:** If 2+ searches in one "Discipline" fail, you MUST switch to an "Opposing Discipline."
+2. **QUERY MUTATION (ANTI-LOOP):** Forbidden from repeating >2 keywords. If "Low Info Density" occurs, you MUST delete the failing keyword and replace it with a higher-level category or technical antonym.
+3. **SPECIFICITY ANCHOR (VENUE PIVOT):** If conceptual searches fail, you MUST search for the specific venue using site operators (e.g., "site:nature.com [Keywords]" or "site:science.org [Keywords]") or search for "[Keywords] 2024 DOI".
 
-### STRATEGY GUIDE
-1. Start with precise research queries: {goal}.
-2. Technical: {goal} on Google Scholar, Semantic Scholar, arXiv. General: {goal} on DuckDuckGo.
-3. Pivot: If stuck, search for details.
-4. Anti-Loop: If a domain fails twice, skip it. If results are thin, search for synonyms.
+### TOOLS
+- SEARCH: query
+- NAVIGATE: url
+- WRITE_DOC: Title | CONTENT: [Final Synthesis]
 
-### RESEARCH MEMORY (Found so far)
+### DISTILLED RESEARCH MEMORY
 {memory_context}
 
-### INSTRUCTIONS
-- State your brief plan.
-- Emit EXACTLY ONE command.
-- DO NOT simulate data. DO NOT write "RAW DATA". 
-- Use SEARCH for broad queries, NAVIGATE for specific pages.
-- When using SEARCH, make sure not to use "" around the query to allow for better recall. Only use "" if you want an exact match.
-- Use WRITE_DOC only when you have high-confidence, relevant information to synthesize.
-- Always prefer high-quality sources and be wary of paywalls, ads, and low-content pages.
-    """
+### STRICT OUTPUT FORMAT
+THOUGHT: [Identify Discipline of failure. State the GAP. Declare Mutation Strategy (e.g., "Replacing 'Scythian' with 'Pontic Steppe site:nature.com'").]
+COMMAND: SEARCH: [Keywords Only]
+"""
 
 def reflection_prompt(action, result, goal):
     return fr"""
@@ -33,30 +27,27 @@ def reflection_prompt(action, result, goal):
     ACTION: {action}
     RAW DATA: {result}
 
-    EXTRACTION & VALIDATION ENHANCEMENTS:
-    - IDENTIFICATION: Extract Variables (Independent/Dependent), Technical Mechanisms, and 3 Domain Synonyms.
-    - SOURCE AUDIT: Identify document type (Peer-reviewed, Govt Report, Dataset, or General Web).
-    - ACRONYM CHECK: For every acronym found (e.g., TSP), search the text for its full expansion. If the expansion is missing or sounds generic, tag it: [POTENTIAL_HALLUCINATION].
+    ### EXTRACTION & VALIDATION ENHANCEMENTS
+    1. **GAP ANALYSIS:** Identify exactly what is missing (e.g., "Missing specific 2024 aDNA haplogroups").
+    2. **EPR EXTRACTION:** - **Entity:** Concept/Object.
+       - **Property:** Numerical data + Units (Critical: Mark missing units as "Unverified [Value]").
+       - **Relation:** Interaction/Causality.
+    3. **SOURCE AUDIT:** If results are empty, ads, or login walls, respond ONLY: "ERROR: Low Info Density".
 
-    TASK: Convert RAW DATA into a "Compressed Research Seed."
-    
-    ### CRITICAL ALIGNMENT & FACT-CHECKING RULES:
-    1. SEMANTIC MATCH: Does the content match the GOAL? (e.g., If GOAL is Permafrost and content is Glaciers, mark: "ERROR: Subject Drift").
-    2. DATA QUALITY: If ads, cookie walls, or login screens, respond ONLY: "ERROR: Low Info Density".
-    3. NO INFERENCE: Do NOT guess missing data. If a statistic lacks units, record it as "Unverified [Value]".
-    4. CONSISTENCY CHECK: Compare this RAW DATA to previous findings in memory. Note any contradictions in units or dates.
-    5. NO EXTRAPOLATION:If no specific DOI or URL was retrieved during the SEARCH/NAVIGATE phase, the agent MUST label the citation as 'THEORETICAL ESTIMATE - NO SOURCE FOUND' and must not invent author names like 'Smith' or 'Jones'."
+    ### CRITICAL ALIGNMENT & INTEGRITY
+    - **SEMANTIC MATCH:** Check for Subject Drift, mark "ERROR: Subject Drift".
+    - **NO EXTRAPOLATION:** If no DOI/URL is found, citation MUST be 'THEORETICAL ESTIMATE - NO SOURCE FOUND'. Do not fabricate authors.
 
-    COMPRESSION RULES:
-    - FORMAT: Dense shorthand / Key:Value pairs.
-    - RETAIN: URLs, DOIs, Dataset IDs, Version numbers, and exact Author strings.
-    - REMOVE: All "introductory" prose, polite transitions, and site navigation.
+    ### COMPRESSION FOR MEMORY DISTILLATION
+    - FORMAT: Dense Key:Value pairs. NO prose. NO conversational filler.
+    - RETAIN: DOIs, URLs, and specific dates.
 
-    SCIENTIFIC INTEGRITY OUTPUT:
-    - QUANTITATIVE: Metrics + Units (e.g., 1672 GtC ± 10%).
-    - CAUSALITY MAPPING: [Driver] -> [Mechanism] -> [Effect].
-    - CITATION: Formal entry (Author, Year, Title, Venue, DOI/URL).
-    - CONSISTENCY SIGNATURE: State if this source confirms or contradicts the "Summary Tag" of the current research phase.
-
-    OUTPUT: A single, high-density paragraph of technical facts, followed by the Causality Map and a one-line Formal Citation.
+    ### SCIENTIFIC INTEGRITY OUTPUT
+    - **GAP IDENTIFIED:** [Specific noun/number needed]
+    - **EPR DATA:** [Entity] | [Properties] | [Relations]
+    - **CAUSALITY MAP:** [Driver] -> [Mechanism] -> [Effect]
+    - **CITATION:** Formal entry.
+    - **CONSISTENCY SIGNATURE:** [Confirms/Contradicts/No Prior Data]
+    - **VERBATIM CHECK:** If the GOAL requires a specific "Clause," "Law," or "Equation," you MUST find the verbatim text. If the text from Source A and Source B contradicts, you MUST label the data as "CONTRADICTORY - REQUIRES PRIMARY SOURCE VALIDATION."
+    OUTPUT: Provide ONLY the structured data above.
     """
