@@ -1,4 +1,6 @@
 ollama
 chromadb
 playwright
-tk
+customtkinter
+httpx
+psutil

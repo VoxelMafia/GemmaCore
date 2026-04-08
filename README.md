@@ -1,109 +1,65 @@
 # GemmaCore
 
-GemmaCore is an autonomous research agent framework that leverages LLMs and browser/file system skills to automate technical research, synthesis, and report generation. It features a modular architecture, persistent or ephemeral memory, and a Tkinter-based UI for interactive operation and approval workflows.
+A lightweight autonomous research agent framework for iterative technical research, synthesis, and report generation. GemmaCore combines an LLM interface, modular skills (browser and filesystem), and a desktop UI to run semi-autonomous research tasks with human-in-the-loop approvals.
 
----
+Key principles
+- Modular: skills and memory backends are pluggable.
+- Safe-by-design: approval prompts gate sensitive actions.
+- Portable: runs locally with optional persistent memory.
 
-## Overview
+## Quickstart
 
-GemmaCore is designed to:
-- Automate technical research using LLMs (Large Language Models)
-- Synthesize findings into structured Markdown reports
-- Interact with the web and local files via modular skills
-- Support approval workflows for safe autonomous operation
-- Provide a user-friendly desktop UI (Tkinter)
+Prerequisites
+- Python 3.9 or newer
+- Ollama (local or remote LLM service) — optional but recommended
+- Playwright (for browser automation)
 
-**Key Components:**
-- **Agent Loop:** Iterative research and synthesis, capped by a final report
-- **Memory:** Pluggable persistent (ChromaDB) or ephemeral session memory
-- **Skills:** Modular browser and filesystem automation
-- **UI:** Tkinter app for goal input, logs, and approval prompts
+Python packages (installed from `requirements.txt`)
+- ollama
+- chromadb
+- playwright
+- customtkinter
+- httpx
+- psutil
 
----
-
-## Setup
-
-### Prerequisites
-- Python 3.9+
-- [Ollama](https://ollama.com/) (for LLM backend)
-- [ChromaDB](https://www.trychroma.com/) (for persistent memory)
-- [Playwright](https://playwright.dev/python/) (for browser automation)
-- Tkinter (usually included with Python)
- - customtkinter (used for the modernized UI)
-
-### Installation
-1. **Clone the repository:**
-   ```sh
-   git clone https://github.com/yourusername/GemmaCore.git
-   cd GemmaCore
-   ```
-2. **Install dependencies:**
-   ```sh
-   pip install -r requirements.txt
-   playwright install
-   ```
-   *(This will install all required Python packages. The `playwright install` command is still needed to set up browser drivers.)*
-
-**Note about `customtkinter`**
-
-The project UI uses `customtkinter` for a modern look-and-feel. If `customtkinter` is not present in your environment, install it with:
-
-```sh
-pip install customtkinter
+Install
+```bash
+git clone https://github.com/yourusername/GemmaCore.git
+cd GemmaCore
+python -m pip install -r requirements.txt
+python -m playwright install
 ```
 
-On some platforms `tkinter` (the underlying toolkit) is provided by the OS or Python distribution; ensure it's available before launching the UI.
+Notes
+- If your Python distribution lacks Tkinter, install the OS package that provides Tk/Tkinter.
+- Ensure Ollama is running and the model configured in `config.py` is available if you plan to use local LLM inference.
 
-3. **Configure Ollama:**
-   - Ensure Ollama is running and the model in `config.py` (default: `gemma3:4b`) is available.
+## Running
+Start the UI:
+```bash
+python main.py
+```
+Use the UI to submit a research goal and follow the approval prompts shown during execution.
 
-4. **(Optional) Configure ChromaDB:**
-   - Persistent memory is enabled by default. Adjust `MEMORY_PATH` in `config.py` as needed.
+## Project layout
+- `main.py` — application entrypoint
+- `config.py` — runtime configuration and paths
+- `ai/` — LLM wrapper and prompts
+- `core/` — agent loop, memory, approval system
+- `skills/` — browser and filesystem automation modules
+- `ui/` — desktop UI and components
+- `utils/` — helper utilities and logging
+- `workspace/` — generated reports and outputs
+- `data/` — logs and persistent memory storage
 
----
-
-## Running Locally
-
-1. **Start the UI:**
-   ```sh
-   python main.py
-   ```
-2. **Enter a research goal in the UI and click START.**
-3. **Monitor logs and approve/deny actions as prompted.**
-
----
-
-## Project Structure
-
-- `main.py` — Entry point, launches the Tkinter UI
-- `config.py` — Configuration (model, paths, settings)
-- `ai/` — LLM interface and prompt templates
-- `core/` — Agent logic, memory, approval, and loop
-- `skills/` — Modular skills (browser, filesystem)
-- `ui/` — Tkinter UI and components
-- `utils/` — Helpers and logging
-- `workspace/` — Output sandbox for generated reports
-- `data/` — Logs and persistent memory DB
-
----
-
-## Features
-
-- Autonomous research agent loop with approval workflow
-- Modular skills for browser and filesystem automation
-- LLM-powered synthesis and Markdown report generation
-- Persistent or ephemeral memory (ChromaDB)
-- Tkinter desktop UI for interactive operation
-
----
+## Development
+- Lint and static-check with your preferred tools (e.g., flake8, mypy).
+- Run Playwright tests or scripts after `python -m playwright install`.
 
 ## License
-
-[MIT License](LICENSE)
-
----
+MIT — see [LICENSE](LICENSE)
 
 ## Acknowledgements
-- [Ollama](https://ollama.com/)
-- [ChromaDB](https://www.trychroma.com/)
-- [Playwright](https://playwright.dev/python/)
+- Ollama — LLM backend
+- ChromaDB — optional persistent memory
+- Playwright — browser automation
