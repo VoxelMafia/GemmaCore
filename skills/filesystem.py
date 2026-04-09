@@ -9,45 +9,57 @@ from config import REQUIRE_APPROVAL
 class FilesystemSkill(BaseSkill):
     def __init__(self, agent):
         super().__init__(agent)
-        # Define a safe sandbox directory
-        self.workspace = os.path.abspath("workspace")
-        os.makedirs(self.workspace, exist_ok=True)
+        # Define the base workspace
+        self.base_workspace = os.path.abspath("workspace")
+        os.makedirs(self.base_workspace, exist_ok=True)
+        
+        # Initialize project_dir as the base until a specific goal is set
+        self.project_dir = self.base_workspace
+
+    def _get_project_path(self):
+        """
+        Dynamically determines the subfolder based on the agent's current goal.
+        """
+        goal = getattr(self.agent.loop, 'overall_thesis_goal', 'default_session')
+        # Create a folder-safe name from the thesis goal
+        folder_name = self._slugify(goal, max_length=50)
+        
+        project_path = os.path.join(self.base_workspace, folder_name)
+        os.makedirs(project_path, exist_ok=True)
+        return project_path
 
     def _slugify(self, text, max_length=64):
-        """
-        Converts a title into a filesystem-safe filename with a strict length limit.
-        """
+        """Converts a title into a filesystem-safe string."""
         if not text:
-            return "untitled-document"
+            return "untitled"
 
-        # 1. Normalize and Clean
+        # Normalize and Clean
         text = unicodedata.normalize('NFKD', text).encode('ascii', 'ignore').decode('ascii').lower()
         text = re.sub(r'[^\w\s-]', '', text).strip()
         text = re.sub(r'[-\s]+', '-', text)
 
-        # 2. Truncate to safe length (64 chars is ideal for portability)
+        # Truncate
         if len(text) > max_length:
-            # Try to cut at the last hyphen to avoid breaking words
             truncated = text[:max_length]
             last_hyphen = truncated.rfind('-')
-            if last_hyphen > (max_length // 2):
-                text = truncated[:last_hyphen]
-            else:
-                text = truncated
+            text = truncated[:last_hyphen] if last_hyphen > (max_length // 2) else truncated
 
         return text
 
     def _get_safe_path(self, user_path):
-        """Resolves path and ensures it stays within the workspace sandbox."""
-        target_path = os.path.abspath(os.path.join(self.workspace, user_path))
+        """Ensures the path stays inside the specific project folder."""
+        # Get the latest project-specific directory
+        current_project_dir = self._get_project_path()
         
-        if not target_path.startswith(self.workspace):
+        target_path = os.path.abspath(os.path.join(current_project_dir, user_path))
+        
+        # Security: Ensure it doesn't escape the base workspace
+        if not target_path.startswith(self.base_workspace):
             raise PermissionError(f"Access Denied: Path {user_path} is outside the sandbox.")
         
         return target_path
 
     def read_text(self, path):
-        """Reads content from a file within the workspace."""
         safe_path = self._get_safe_path(path)
         if not os.path.exists(safe_path):
             return f"Error: File {path} not found."
@@ -56,23 +68,21 @@ class FilesystemSkill(BaseSkill):
             return f.read()
 
     def write_text(self, path, content):
-        """Writes raw content to a specific path within the workspace."""
         safe_path = self._get_safe_path(path)
         os.makedirs(os.path.dirname(safe_path), exist_ok=True)
         
         with open(safe_path, 'w', encoding='utf-8') as f:
             f.write(content)
-        return f"Successfully wrote to {path}"
+        
+        # Extract relative path for a cleaner UI log
+        rel_path = os.path.relpath(safe_path, self.base_workspace)
+        return f"Document stored in: {rel_path}"
 
     def save_document(self, title, content, extension=".md"):
-        """
-        Safely generates a filename from a title and writes the document.
-        Fixes the 'Long Filename' crash by slugifying and truncating the title.
-        """
-        # Truncate title for filename but keep full title for front-matter
+        """Slugifies the title and saves with metadata front-matter."""
         clean_name = self._slugify(title)
         
-        # Add a unique short hash if the title was extremely long to prevent overwrites
+        # Unique naming to prevent collisions
         if len(title) > 100:
             short_hash = hashlib.md5(title.encode()).hexdigest()[:6]
             filename = f"{clean_name}-{short_hash}{extension}"
@@ -84,17 +94,13 @@ class FilesystemSkill(BaseSkill):
         fm_date = datetime.utcnow().isoformat()
         fm_summary = title[:200] + "..." if len(title) > 200 else title
         
-        front_matter = f"---\nauthor: {fm_author}\ndate: {fm_date}\nsummary: {fm_summary}\n---\n\n"
+        front_matter = f"---\nauthor: {fm_author}\ndate: {fm_date}\ntitle: {title}\nsummary: {fm_summary}\n---\n\n"
         full_content = front_matter + content
 
         # Approval Logic
         if REQUIRE_APPROVAL and hasattr(self.agent, 'approval') and self.agent.approval:
-            try:
-                approved = self.agent.approval.request(f"Write file {filename} (Title: {title[:50]}...)")
-            except Exception:
-                approved = False
-
-            if not approved:
-                return f"Write aborted by operator: {filename}"
+            msg = f"Save Chapter to Workspace: {filename}?"
+            if not self.agent.approval.request(msg):
+                return f"Save aborted: {filename}"
 
         return self.write_text(filename, full_content)

@@ -25,13 +25,16 @@ class Memory:
         )
 
     def get_context(self, query_text, n_results=5):
-        # Only query if there is actually data in the collection
-        if self.collection.count() == 0:
+        count = self.collection.count()
+        if count == 0:
             return "No research yet."
-            
+        
+        # FIX: Ensure n_results does not exceed the actual count
+        safe_n = min(n_results, count)
+        
         results = self.collection.query(
             query_texts=[query_text],
-            n_results=n_results
+            n_results=safe_n
         )
         if results['documents'] and results['documents'][0]:
             return "\n---\n".join(results['documents'][0])

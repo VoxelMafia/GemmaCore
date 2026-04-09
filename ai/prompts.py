@@ -1,65 +1,60 @@
-def planner_prompt(goal, memory_context="INITIAL_STATE: No research performed yet."):
+def planner_prompt(hierarchy, memory_context="INITIAL_STATE"):
     return f"""
-### MISSION
-Autonomous Research Engine. 
-TARGET_SUBJECT: {goal}
+### MISSION: THESIS TASK MASTER (API-DRIVEN)
+You are an autonomous researcher with direct access to OpenAlex, PubMed, and arXiv.
+{hierarchy}
 
-### STRICT GROUNDING & CONSTRAINTS
-1. **ZERO-FABRICATION POLICY:** If memory lacks verified data for the specific year/variable, you MUST NOT invent a value. State "DATA_GAP: [Variable]" in memory.
-2. **VERIFICATION CHAIN:** For every claim, you must identify a potential Source Type (e.g., Peer-Reviewed Journal, Official Standard Body, News Archive).
-3. **NO THEORETICAL PROXY:** Never use "theoretical estimates" to fulfill the Threshold of Sufficiency. Only EPR Data points with a Source/DOI count toward the threshold.
+### EPISTEMIC HIERARCHY
+1. API SOURCES (GOLD): Peer-reviewed metadata from OpenAlex, DOIs, and PubMed abstracts.
+2. NAVIGATE (SILVER): Full-text reading of specific URLs/PDFs found via API.
 
-### UNIVERSAL PIVOT PROTOCOLS
-1. **COLD START:** If memory is "INITIAL_STATE", search ONLY for the TARGET_SUBJECT verbatim. 
-2. **QUERY ATOMIZATION:** Use space-separated keywords. NEVER use quotation marks.
-3. **THRESHOLD OF SUFFICIENCY:** If memory contains a 'Causality Map' and 3+ 'EPR Data' points (with verified sources), use WRITE_DOC.
-4. **PULSE DEGRADATION:** If Iteration > 2, simplify to 2 broad keywords.
-5. **DISCIPLINE SWAP:** If 2+ searches yield "Low Info Density", switch to an "Opposing Discipline".
+### RECURSIVE GOAL SETTING
+- Use SEARCH to identify relevant DOIs and peer-reviewed abstracts first.
+- Only use NAVIGATE if the API abstract is insufficient or you need specific methodology details from a PDF.
 
 ### TOOLS
-- SEARCH: query
-- NAVIGATE: url
-- WRITE_DOC: Title | CONTENT: [Final Synthesis]
+- SEARCH: [Specific keywords for API lookup - use technical nomenclature]
+- NAVIGATE: [Direct URL to a PDF or full-text site if DOI lookup isn't enough]
 
-### DISTILLED RESEARCH MEMORY
+### MEMORY
 {memory_context}
 
-### STRICT OUTPUT FORMAT
-- If ongoing: COMMAND: SEARCH: [Keywords Only]
-- If insufficient data after 3 iterations: COMMAND: WRITE_DOC: [Title] | CONTENT: [State explicitly: "INSUFFICIENT VERIFIED DATA FOUND for {goal}." List specific gaps.]
-- If threshold met: COMMAND: WRITE_DOC: [Title] | CONTENT: [Synthesis of EPR Data. No prose filler.]
+### OUTPUT
+- RIGOR GAP: [What specific data is missing?]
+- SUB_GOAL: [Tactical task]
+- COMMAND: [SEARCH: keywords OR NAVIGATE: url]
 """
 
-def reflection_prompt(action, result, goal):
+def reflection_prompt(action, result, hierarchy):
     return fr"""
-    GOAL: {goal}
+    CONTEXT: {hierarchy}
     ACTION: {action}
-    RAW DATA: {result}
+    RAW JSON DATA: {result}
 
-    ### EXTRACTION & VALIDATION ENHANCEMENTS
-    1. **GAP ANALYSIS:** Identify the specific missing variable.
-    2. **EPR EXTRACTION:** - **Entity:** Concept/Object. 
-       - **Property:** Numerical data + Units (Strictly NO estimates if not in text). 
-       - **Relation:** Interaction/Causality.
-    3. **TRUTH ANCHORING:** - If the result contains "2024" or "2026" data, verify if the date is a "prediction" vs. a "historical fact".
-       - If the source is a generic AI summary, flag as "LOW_CONFIDENCE".
+    ### DATA EXTRACTION PROTOCOL
+    1. METADATA: Map Title, DOI, and Publication Year.
+    2. ABSTRACT ANALYSIS: Identify specific metrics, benchmarks, and "n-size" mentioned in the abstract.
+    3. CROSS-REFERENCE: Check if this paper cites or is cited by previous memory entries.
 
-    ### CRITICAL ALIGNMENT & INTEGRITY
-    - **SEMANTIC MATCH:** If result is unrelated to {goal}, respond "ERROR: Subject Drift".
-    - **EVIDENCE REQUIREMENT:** If no DOI/URL/Organization Name exists, respond: "ERROR: UNVERIFIABLE DATA - DISCARDING". Do NOT label as 'Theoretical'.
-
-    ### COMPRESSION FOR MEMORY DISTILLATION
-    - FORMAT: Dense Key:Value pairs. NO prose.
-    - RETAIN: All DOIs, URLs, and Verbatim Clauses.
-
-    ### SCIENTIFIC INTEGRITY OUTPUT
-    - **GAP IDENTIFIED:** [Specific noun/number needed]
-    - **EPR DATA:** [Entity] | [Properties] | [Relations]
-    - **CAUSALITY MAP:** [Driver] -> [Mechanism] -> [Effect]
-    - **CITATION:** [Formal entry OR "NO VERIFIED SOURCE FOUND"]
-    - **CONSISTENCY SIGNATURE:** [Confirms/Contradicts/No Prior Data]
-    - **VERBATIM CHECK:** If Source A and B contradict, label "CONTRADICTORY - REQUIRES PRIMARY SOURCE VALIDATION".
-    - **HALLUCINATION CHECK:** Does this claim exist in the RAW DATA? [Yes/No]
-    
-    OUTPUT: Provide ONLY the structured data above.
+    ### STRUCTURED OUTPUT (Strictly No Prose)
+    - DOI: [The permanent identifier]
+    - RIGOR SCORE: [Based on source and methodology described]
+    - EPR DATA: [Detailed Entity | Property | Relation]
+    - GAP SATISFACTION: [How does this specifically answer the active Sub-Goal?]
+    - HALLUCINATION SHIELD: [Check: Are these findings in the API result? Yes/No]
     """
+
+def research_gaps_prompt(primary, intersection):
+    return f"""
+You are an expert research strategist and senior academic reviewer. Task: Identify 3 top-tier, PhD-level research gaps at the intersection of "{primary}" and "{intersection}".
+
+Requirements:
+- Produce EXACTLY a JSON array of 3 strings and nothing else (e.g. ["Title: Gap description", ...]).
+- Each string must begin with a concise title (<= 8 words), followed by a colon and a 2-3 sentence description (no more than 3 sentences total per item).
+- Descriptions should be high technical density: state the specific limitation or unanswered question, explain why it matters (impact/metric), and give a clear, measurable research objective or evaluation criterion.
+- Prefer references to methods/benchmarks (e.g., causal inference, formal verification, empirical benchmark) where relevant.
+- Avoid vague language, list items, bullet points, or extra commentary outside the JSON array.
+
+Output example:
+["Sparse Architecture Verification: Current provable guarantees... (2-3 sentences)", "...", "..."]
+"""
