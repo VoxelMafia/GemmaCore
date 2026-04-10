@@ -58,9 +58,10 @@ class AgentState:
     # ── Goals ─────────────────────────────────────────────────────────────────
     goals: List[Goal] = field(default_factory=list)
     current_goal: Optional[Goal] = None
-
+    plan: Optional[str] = None         
     # ── Execution context ─────────────────────────────────────────────────────
     current_context: str = ""          # What the agent is focused on right now
+    current_action: Optional[Any] = None  # The action currently being executed; None if idle or between actions
     current_sub_goal: str = ""
     current_chapter_index: int = 0
     current_chapter_title: str = ""

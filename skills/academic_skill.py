@@ -1,5 +1,5 @@
 """
-skills/academic_skill.py — OpenAlex academic search wrapped in BaseSkill.
+skills/academic_skill.py — OpenAlex academic search with Bulletproof Anchoring.
 """
 from __future__ import annotations
 import os
@@ -19,8 +19,9 @@ class AcademicSkillWrapper(BaseSkill):
 
     @property
     def description(self) -> str:
-        return ("Search peer-reviewed literature via the OpenAlex API. "
-                "Returns structured paper metadata including title, DOI, abstract, and year.")
+        return ("Search peer-reviewed literature via OpenAlex. "
+                "Returns metadata with [REF_X] anchors and ready-to-use IEEE citation lines. "
+                "Use the [REF_X] anchor in your text to ensure 100% DOI accuracy.")
 
     @property
     def input_schema(self) -> Dict[str, str]:
@@ -32,7 +33,7 @@ class AcademicSkillWrapper(BaseSkill):
     @property
     def output_schema(self) -> Dict[str, str]:
         return {
-            "output": "List of paper dicts: {title, doi, url, year, abstract, type}",
+            "output": "List of paper dicts: {anchor, title, doi, citation_line, year, abstract}",
         }
 
     @property
@@ -50,17 +51,13 @@ class AcademicSkillWrapper(BaseSkill):
     # ── BaseSkill ──────────────────────────────────────────────────────────────
 
     def _run(self, inputs: Dict[str, Any]) -> Any:
-        # Check if we got the new dict format or the old string format
         if isinstance(inputs, dict):
-            query = inputs.get("query", "")
-            # Safety: ensuring query is a string before stripping
-            query = str(query).strip()
+            query = str(inputs.get("query", "")).strip()
             limit_val = inputs.get("limit", 5)
         else:
             query = str(inputs).strip()
             limit_val = 5
 
-        # Safety check for integer conversion
         try:
             limit = int(limit_val)
         except (ValueError, TypeError):
@@ -68,8 +65,10 @@ class AcademicSkillWrapper(BaseSkill):
 
         if not query:
             return []
+            
         clean_query = query.replace('"', '').replace("'", "").strip()
         return self._search(clean_query, limit)
+
     # ── Implementation ─────────────────────────────────────────────────────────
 
     def _search(self, query: str, limit: int = 5) -> List[Dict[str, Any]]:
@@ -88,21 +87,35 @@ class AcademicSkillWrapper(BaseSkill):
                 return []
 
             results = []
-            for work in resp.json().get("results", []):
+            raw_data = resp.json().get("results", [])
+            
+            for index, work in enumerate(raw_data):
+                # Extract clean metadata
+                title = work.get("display_name", "Unknown Title")
+                doi = work.get("doi") or "No DOI available"
+                year = work.get("publication_year", "n.d.")
+                
+                # Get Lead Author
+                authorships = work.get("authorships", [])
+                lead_author = "Unknown"
+                if authorships:
+                    lead_author = authorships[0].get("author", {}).get("display_name", "Unknown")
+
+                # Build the "Bulletproof" package
                 results.append({
-                    "title":    work.get("display_name"),
-                    "doi":      work.get("doi"),
-                    "url":      work.get("doi") or work.get("ids", {}).get("mag"),
-                    "year":     work.get("publication_year"),
+                    "anchor": f"[REF_{index + 1}]",
+                    "title": title,
+                    "doi": doi,
+                    "url": work.get("doi") or work.get("ids", {}).get("mag"),
+                    "year": year,
+                    "citation_line": f"{lead_author}, \"{title},\" {year}. DOI: {doi}",
                     "abstract": self._parse_abstract(work.get("abstract_inverted_index")),
-                    "type":     "Academic/Peer-Reviewed",
+                    "type": "Academic/Peer-Reviewed",
                 })
+
             logger.info(f"OpenAlex: {len(results)} results for '{query}'")
             return results
 
-        except requests.Timeout:
-            logger.error(f"OpenAlex timeout for '{query}'")
-            return []
         except Exception as exc:
             logger.error(f"OpenAlex error: {exc}")
             return []
@@ -113,11 +126,9 @@ class AcademicSkillWrapper(BaseSkill):
         if not inverted_index:
             return "No abstract available."
         
-        # OpenAlex provides abstracts as { "word": [positions] }
         words: Dict[int, str] = {}
         for word, positions in inverted_index.items():
             for pos in positions:
                 words[pos] = word
                 
-        # Sort by position to reconstruct the sentence
         return " ".join(words[i] for i in sorted(words))

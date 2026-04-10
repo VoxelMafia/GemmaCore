@@ -22,7 +22,6 @@ class SkillRegistry:
 
     Usage:
         registry = SkillRegistry(agent)
-        registry.register(BrowserSkill(agent))
         result = registry.run("browser", {"action": "search", "query": "AI"})
     """
 
@@ -71,13 +70,6 @@ class SkillRegistry:
 
         self.register(FileOpsSkill(self._agent))
         self.register(MemoryOpsSkill(self._agent))
-
-        # Browser and Academic are heavier; load them with try/except
-        try:
-            from skills.browser_skill import BrowserSkillWrapper
-            self.register(BrowserSkillWrapper(self._agent))
-        except Exception as exc:
-            logger.warning(f"[REGISTRY] BrowserSkill not loaded: {exc}")
 
         try:
             from skills.academic_skill import AcademicSkillWrapper

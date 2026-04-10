@@ -45,6 +45,13 @@ class App(ctk.CTk):
 
         self._build_ui()
 
+        # Configure colors for log levels
+        self.logbox.tag_config("INFO", foreground=ACCENT_PRIMARY)
+        self.logbox.tag_config("ERROR", foreground="#EF4444")
+        self.logbox.tag_config("WARN", foreground=ACCENT_WARNING)
+        self.logbox.tag_config("DEBUG", foreground="#64748B")
+        self.logbox.tag_config("SUCCESS", foreground=ACCENT_SUCCESS)
+
         if self.agent:
             try:
                 set_ui_callback(self._safe_log_from_logger)
@@ -88,12 +95,13 @@ class App(ctk.CTk):
 
         self.logbox = ctk.CTkTextbox(
             console,
-            font=("JetBrains Mono", 12),
+            font=("JetBrains Mono", 14),
             fg_color=CARD_COLOR,
             border_color=BORDER_COLOR,
             border_width=1,
             corner_radius=8,
             text_color=TEXT_MUTED,
+            wrap ="word",
         )
         self.logbox.grid(row=0, column=0, sticky="nsew")
 
@@ -220,14 +228,29 @@ class App(ctk.CTk):
 
     def _safe_log(self, msg: str):
         ts = time.strftime("%H:%M:%S")
-        self.logbox.insert("end", f" [{ts}] {msg}\n")
+        # Determine tag first
+        tag = None
+        if "ERROR" in msg: tag = "ERROR"
+        elif "WARN" in msg: tag = "WARN"
+        elif "DEBUG" in msg: tag = "DEBUG"
+        elif any(x in msg for x in ["✅", "Saved", "SUCCESS"]): tag = "SUCCESS"
+        elif "INFO" in msg: tag = "INFO"
+
+        # Insert timestamp first (un-tagged or grey)
+        self.logbox.insert("end", f"[{ts}] ", "DEBUG") 
+        
+        # Insert the message with the specific tag
+        if tag:
+            self.logbox.insert("end", f"{msg}\n", tag)
+        else:
+            self.logbox.insert("end", f"{msg}\n")
+            
         self.logbox.see("end")
 
     def _safe_log_from_logger(self, formatted: str):
         try:
             self.last_activity_time = time.time()
-            self.logbox.insert("end", formatted + "\n")
-            self.logbox.see("end")
+            self._safe_log(formatted.strip())
         except Exception:
             pass
 

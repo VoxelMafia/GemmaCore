@@ -1,42 +1,62 @@
 """
-ai/prompts.py — All LLM prompt templates in one place.
-
-Prompts are pure functions: (context) → str.
-No logic lives inside prompts; keep them thin.
+ai/prompts.py — Finalized Academic Suite.
+Features: Bulletproof Anchoring, Reference Mapping, and Rigor Enforcement.
 """
 from __future__ import annotations
 
 
 def planner_prompt(hierarchy: str, memory_context: str = "INITIAL_STATE") -> str:
+    """
+    Super-version of the planner prompt with dynamic termination, 
+    loop-breaking logic, and phase-aware mission parameters.
+    """
+    # Detect the current phase to prevent infinite search loops in the Conclusion
+    is_conclusion = any(x in hierarchy for x in ["Conclusion", "Chapter 5", "Final"])
+
+    # Define the Mission based on Chapter context
+    if is_conclusion:
+        mission_mode = """
+### MISSION: FINAL SYNTHESIS (CONCLUSION MODE)
+- You are in the FINAL PHASE. DO NOT perform new SEARCH actions.
+- Your goal is to synthesize existing [REF_X] anchors from your MEMORY into a final cohesive argument.
+- Prioritize COMMAND: WRITE immediately."""
+        termination_rule = "- MANDATORY: Trigger COMMAND: WRITE now. You have all required data."
+        command_constraint = "- COMMAND: [WRITE: conclude findings]"
+    else:
+        mission_mode = """
+### MISSION: THESIS TASK MASTER (RESEARCH MODE)
+- Identify high-rigor evidence using OpenAlex/Peer-reviewed databases.
+- Track all evidence using unique [REF_X] anchors and verified DOIs."""
+        termination_rule = "- If 3+ relevant [REF_X] anchors are identified, you HAVE 'ground truth.' STOP searching and transition to COMMAND: WRITE."
+        command_constraint = "- COMMAND: [SEARCH: keywords | WRITE: chapter content]"
+
     return f"""
-### MISSION: THESIS TASK MASTER
-You are an autonomous researcher with direct access to OpenAlex, PubMed, and arXiv.
+{mission_mode}
+
+### CONTEXT HIERARCHY
 {hierarchy}
 
 ### EPISTEMIC HIERARCHY
-1. API SOURCES (GOLD): Peer-reviewed metadata from OpenAlex, DOIs, PubMed abstracts.
-2. NAVIGATE (SILVER): Full-text reading of specific URLs/PDFs found via API.
+1. ANCHORED API DATA (GOLD): Results with [REF_X] anchors and verified DOIs.
+2. SYNTHESIZED MEMORY: Facts linked to specific anchors.
+3. UNVERIFIED: Any claim lacking an [REF_X] or DOI (Avoid these).
 
 ### RECURSIVE GOAL SETTING
-- Use SEARCH to identify relevant DOIs and peer-reviewed abstracts first.
-- Only use NAVIGATE if the abstract is insufficient or you need specific methodology details.
+- ALWAYS associate facts with their specific [REF_X] anchor.
+- If a DOI is missing, mark the anchor as [UNVERIFIED] and do not use it for "Ground Truth."
+- If the current results are irrelevant (e.g., mismatched domains), explicitly state this in the RIGOR GAP.
 
-### TOOLS
-- SEARCH: [Specific keywords for API lookup — use technical nomenclature]
-- NAVIGATE: [Direct URL to a PDF or full-text site]
-
-### MEMORY
+### MEMORY & ANCHORS
 {memory_context}
 
 ### TERMINATION LOGIC
-- If you have successfully extracted data for 2+ relevant DOIs, you have sufficient "Ground Truth."
-- Once ground truth is established, prioritize the COMMAND: WRITE over identifying new RIGOR GAPS.
-- Your goal is to complete the chapter synthesis, not to achieve exhaustive research.
+{termination_rule}
+- Avoid the 'Anchor Trap': If you have searched for the same topic twice without new results, move to synthesis.
 
-### OUTPUT FORMAT (strictly follow this structure)
-- RIGOR GAP: [Only if < 2 DOIs found or if gaps are explicitly identified in abstracts]
-- SUB_GOAL: [Tactical task — one clear sentence]
-- COMMAND: [SEARCH: keywords  OR  NAVIGATE: url]
+### OUTPUT FORMAT (Strict JSON-like Structure)
+- RIGOR GAP: [Count of verified anchors vs. needed (e.g., 3/5). Identify specific missing technical data.]
+- SUB_GOAL: [One tactical sentence for the current iteration.]
+- {command_constraint}
 """
 
 
@@ -47,16 +67,17 @@ ACTION: {action}
 RAW DATA: {result}
 
 ### DATA EXTRACTION PROTOCOL
-1. METADATA: Map Title, DOI, and Publication Year.
-2. ABSTRACT ANALYSIS: Identify specific metrics, benchmarks, and sample sizes.
-3. CROSS-REFERENCE: Check if this paper cites or is cited by previous memory entries.
+1. ANCHOR MAPPING: Match the [REF_X] tag to the DOI and Title.
+2. EVIDENCE EXTRACTION: Identify specific metrics or claims supported by the abstract.
+3. CITATION LINE: Carry forward the exact 'citation_line' for the final bibliography.
 
 ### STRUCTURED OUTPUT (no prose, structured facts only)
+- ANCHOR: [REF_X]
 - DOI: [The permanent identifier]
-- RIGOR SCORE: [0.0–1.0 based on source type and methodology]
-- EPR DATA: [Entity | Property | Relation triples]
+- CITATION_LINE: [The ready-to-use IEEE string]
+- EPR DATA: [Entity | Property | Relation triples linked to this ANCHOR]
 - GAP SATISFACTION: [How does this specifically address the active Sub-Goal?]
-- HALLUCINATION SHIELD: [Are these findings present in the raw data above? Yes/No]
+- HALLUCINATION SHIELD: [Does this DOI match the ANCHOR in the raw data? Yes/No]
 """
 
 
@@ -69,11 +90,7 @@ Requirements:
 - Produce EXACTLY a JSON array of 3 strings and nothing else.
 - Each string: concise title (<= 8 words), colon, then 2–3 sentence description.
 - High technical density: state the specific limitation, why it matters, and a measurable objective.
-- Prefer references to methods/benchmarks (e.g., causal inference, formal verification).
 - No vague language, no bullet points, no commentary outside the JSON array.
-
-Output example:
-["Sparse Architecture Verification: Current provable guarantees... (2-3 sentences)", "...", "..."]
 """
 
 
@@ -82,11 +99,12 @@ def synthesis_prompt(chapter_title: str, goal: str, grounding: str, research_dat
         f"Act as a Rigorous Scientific Reviewer. Write Chapter: '{chapter_title}'.\n"
         f"THESIS GOAL: {goal}\n"
         f"CORE DEFINITIONS: {grounding}\n"
-        f"RESEARCH DATA:\n{research_data}\n\n"
+        f"RESEARCH DATA (ANCHORED):\n{research_data}\n\n"
         "STRICT CITATION PROTOCOL:\n"
-        "1. You must use IEEE citation style (e.g., [1], [2]).\n"
-        "2. Ground ALL claims in the RESEARCH DATA provided.\n"
-        "3. Every time you use a piece of evidence, place the exact DOI of the source in brackets next to the claim like this: [DOI: 10.xxxx/yyyy].\n"
-        "4. DO NOT invent, hallucinate, or guess DOIs. If a claim does not have a supporting DOI in the RESEARCH DATA, drop the claim entirely.\n"
-        "5. At the bottom of the chapter, generate a 'References' section that lists out the DOIs used."
+        "1. USE ANCHORS: While writing, use the [REF_X] anchors provided in the RESEARCH DATA.\n"
+        "2. DO NOT WRITE DOIs: Never attempt to type out a DOI in the body text. Use the anchor instead (e.g., 'As shown in [REF_1]...').\n"
+        "3. FINAL PASS: After writing the text, create a 'References' section.\n"
+        "4. BIBLIOGRAPHY: In the References section, list the full 'citation_line' provided in the data for each anchor used.\n"
+        "5. RIGOR: If a claim is not supported by a specific [REF_X] entry in the data, delete the claim entirely.\n"
+        "6. FORMAT: Ensure the final output is in clean Markdown."
     )

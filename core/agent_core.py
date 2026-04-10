@@ -20,7 +20,8 @@ import json
 import re
 import uuid
 from typing import Any, Optional
-
+from ai.prompts import planner_prompt
+from ai.prompts import research_gaps_prompt
 from config.settings import settings
 from core.state import AgentState, AgentStatus, ActionRecord, Goal
 from core.personality import PersonalityEngine
@@ -30,6 +31,7 @@ from memory.episodic import EpisodicMemory
 from memory.semantic import SemanticMemory
 from memory.long_term import LongTermMemory
 from llm.interface import LLMInterface
+from skills.file_ops import FileOpsSkill
 from skills.registry import SkillRegistry
 from observability.logger import get_logger
 from observability.trace import Tracer
@@ -145,7 +147,6 @@ class AgentCore:
                 
                 # 3. Re-inject signal only
                 if "No relevant memory found" not in summary_text:
-                    self.state.push_short_term(f"STRICT GROUNDING FROM PREVIOUS RESEARCH:\n{summary_text}")
                     # Re-store it so retrieve() works in the new session's perception
                     self.semantic.store(f"PREVIOUS_RESEARCH_SUMMARY: {summary_text}")
 
@@ -175,6 +176,15 @@ class AgentCore:
 
                 # Synthesis phase for the completed chapter
                 self._phase_finalize_chapter()
+
+            # ── NEW: MERGE AND CLEAN THESIS ──
+            topic_folder = FileOpsSkill._slugify(self.state.current_goal.description)
+            merge_result = self.skills.get("file_ops").execute({
+                "action": "merge_and_clean",
+                "folder": topic_folder,
+                "title": f"Complete_Thesis_{topic_folder}"
+            })
+            logger.info(f"[SYSTEM] Thesis compilation: {merge_result}")
 
             self._emit("✅ Full Thesis Synthesis Complete.")
             self.state.set_status(AgentStatus.IDLE)
@@ -273,12 +283,12 @@ class AgentCore:
 
     def _phase_init(self) -> None:
         """Generate research gap and thesis outline before the main loop."""
-        from ai.prompts import research_gaps_prompt
         s = self.state
         g = s.current_goal
 
         self._emit(f"🔬 Initiating research scan: {g.description}")
-
+        topic_folder = FileOpsSkill._slugify(g.description)
+        self.skills.get("file_ops")._write(f"{topic_folder}/.placeholder", "Research started.")
         # Research gap → thesis goal
         if not g.description.strip().lower() or g.description.lower() == "autonomous":
             prompt = research_gaps_prompt(g.primary_domain or "Emerging Tech",
@@ -304,49 +314,50 @@ class AgentCore:
     def _phase_perception(self) -> str:
         """Gather current context: memory + source map + sub-goal."""
         s = self.state
+        
+        # 1. Prioritize Short Term Memory (Crucial to break loops)
+        stm_context = "\n".join(self.stm.recent(n=3))
+        safe_stm = stm_context[:800] # Guarantee 800 chars for STM
+        
+        # 2. Fetch Semantic Memory
+        mem_context = str(self.semantic.retrieve(s.current_sub_goal, k=4))[:600]
+        
+        # 3. Fetch Sources (Truncate to whatever space is left)
         high_rigor = [
-            f"SOURCE ({src['type']} RIGOR {src['score']}): {src['content'][:300]}"
+            f"SOURCE: {src['content'][:200]}" # Tighter crop on sources
             for src in s.source_map.values() if src.get("score", 0) >= 0.6
         ]
-        # Fixed: Using correct k as defined in semantic.py
-        mem_context = self.semantic.retrieve(s.current_sub_goal, k=4)
-        stm_context = self.stm.recent(n=3)
+        safe_sources = "\n".join(high_rigor)[:1000] 
+
         context = (
             f"GOAL: {s.active_goal_str()}\n"
             f"CHAPTER: {s.current_chapter_title}\n"
             f"SUB_GOAL: {s.current_sub_goal}\n"
-            f"VERIFIED_SOURCES:\n" + "\n".join(high_rigor) +
-            f"\nRECENT_MEMORY:\n{mem_context}\n"
-            f"SHORT_TERM:\n{chr(10).join(stm_context)}"
+            f"SHORT_TERM (Recent Actions):\n{safe_stm}\n"
+            f"RECENT_MEMORY:\n{mem_context}\n"
+            f"VERIFIED_SOURCES:\n{safe_sources}"
         )
-        return context[:2000]  # Limit perception size to avoid overload
+        return context
     
     def _phase_reasoning(self, perception: str) -> str:
         """Call LLM with personality-biased planner prompt."""
         from ai.prompts import planner_prompt
         prefix = self.personality.reasoning_prefix()
+        
+        # Ensure current_sub_goal is never None for semantic search
+        query = self.state.current_sub_goal or "Next research steps"
+        context = self.semantic.retrieve(query, k=6)
+        
         augmented = f"[PERSONALITY BIAS]: {prefix}\n\n{perception}"
-        # Fixed: Using correct k
-        return self.llm.complete(planner_prompt(augmented, self.semantic.retrieve(
-            self.state.current_sub_goal, k=6
-        )))
 
+        return self.llm.complete(planner_prompt(augmented, context))
+    
     def _phase_action(self, chosen) -> str:
         """Dispatch to the correct skill."""
         s = self.state
 
-        if chosen.action_type == "NAVIGATE":
-            url = chosen.payload
-            if url in s.attempted_urls:
-                return "SYSTEM: Source already analyzed."
-            s.attempted_urls.append(url)
-            browser = self.skills.get("browser")
-            raw = browser.execute({"action": "navigate", "url": url})
-            analysis = self._grade_evidence(url, raw, is_api=False)
-            s.source_map[url] = analysis
-            return f"SOURCE: {url}\nGRADE {analysis['score']}\nCONTENT: {analysis['content'][:1200]}"
 
-        elif chosen.action_type == "SEARCH":
+        if chosen.action_type == "SEARCH":
             academic = self.skills.get("academic")
             papers = academic.execute({"query": chosen.payload})
             if isinstance(papers, list) and papers:
@@ -357,11 +368,7 @@ class AgentCore:
                     s.source_map[purl] = analysis
                     parts.append(f"DOI: {purl}\nAbstract: {p['abstract'][:800]}")
                 return "\n---\n".join(parts)
-            else:
-                self._emit("⚠️ Academic API empty. Falling back to browser search.")
-                browser = self.skills.get("browser")
-                return browser.execute({"action": "search", "query": chosen.payload,
-                                        "goal": s.current_sub_goal})
+            return "No papers found. Need to alter search terms."
 
         elif chosen.action_type == "REFLECT":
             return f"[REFLECTION PASS] Sub-goal: {chosen.payload}"
@@ -409,47 +416,45 @@ class AgentCore:
         """Synthesize collected research into a chapter document."""
         static_names = ["Introduction", "Literature_Critique", "Methodology", "Synthesis", "Conclusion"]
         idx = self.state.current_chapter_index
-        safe_title = static_names[idx] if idx < len(static_names) else f"Chapter_{idx + 1}"
+        
+        # 1. Resolve Naming
+        safe_title = static_names[idx] if idx < len(static_names) else f"Extended_Analysis_{idx + 1}"
+        self._emit(f"Synthesizing {safe_title}...")
 
-        self._emit(f"✍️ Synthesizing {safe_title}…")
-
+        # 2. Retrieve Context (with robust fallbacks)
         anchor = f"CHAPTER_{idx + 1}_DATA"
-        # Fixed: k
         context_data = self.semantic.retrieve(anchor, k=20)
-        if "No relevant memory" in context_data or len(context_data) < 150:
-            context_data = self.semantic.retrieve(self.state.current_chapter_title, k=15)
+        
+        if not context_data or len(str(context_data)) < 200:
+            context_data = self.semantic.retrieve(self.state.current_chapter_title or "Conclusion", k=15)
 
         grounding = self.semantic.retrieve("CORE_DEFINITIONS", k=1)
-        safe_context = str(context_data)[:12000]
-
+        
+        # 3. Generate Content
         write_prompt = (
-            f"Act as a Rigorous Scientific Reviewer. Write Chapter: '{self.state.current_chapter_title}'.\n"
+            f"Act as a Rigorous Scientific Reviewer. Write Chapter: '{safe_title}'.\n"
             f"GOAL: {self.state.active_goal_str()}\n"
-            f"CORE DEFINITIONS: {grounding}\n"
-            f"RESEARCH DATA: {safe_context}\n"
-            "STRICT RULES:\n"
-            "1. Use a formal, peer-reviewed tone.\n"
-            "2. Ground all claims in the RESEARCH DATA provided.\n"
-            "3. Cite findings explicitly via DOIs found in research.\n"
-            "4. Write at least 800 words."
+            f"CONTEXT: {str(context_data)[:8000]}\n"
+            "STRICT RULES: Use IEEE citations, formal tone, and summarize key findings."
         )
-
         final_body = self.llm.complete(write_prompt)
 
-        if len(final_body) < 600:
-            self._emit(f"⚠️ {safe_title} too thin. Retrying…")
-            expanded = self.semantic.retrieve(self.state.active_goal_str(), k=10)
-            final_body = self.llm.complete(write_prompt + f"\nSUPPLEMENTAL DATA: {str(expanded)[:4000]}")
-
+        # 4. Save with Folder Logic
         file_skill = self.skills.get("file_ops")
         filename = f"Chapter_{idx + 1}_{safe_title}"
+        
+        # Ensure description exists for slugifying
+        goal_desc = self.state.active_goal_str() or "research_project"
+        topic_folder = FileOpsSkill._slugify(goal_desc)
+
         file_skill.execute({
             "action": "save_document", 
-            "path": f"{filename}.md",  # Add this
+            "folder": topic_folder,
             "title": filename, 
             "content": final_body
         })
-        self._emit(f"💾 Saved: {filename}")
+        
+        self._emit(f"💾 Saved: {topic_folder}/{filename}.md")
 
     # ── Utilities ─────────────────────────────────────────────────────────────
 

@@ -78,17 +78,18 @@ class PersonalityEngine:
     # ── Read ──────────────────────────────────────────────────────────────────
 
     def score(self, decision_key: str) -> float:
-        """
-        Returns a weighted influence score for a named decision.
-        Positive → lean toward the action; negative → lean away.
-        Range: approximately [-1.0, 1.0].
-        """
         weights = DECISION_WEIGHTS.get(decision_key, {})
         if not weights:
             return 0.0
-        raw = sum(self.traits.get(trait, 0.5) * w for trait, w in weights.items())
-        # Normalize to [-1, 1] using tanh
-        return math.tanh(raw)
+        
+        # Calculate weighted influence
+        raw = sum(self.traits.get(t, 0.5) * w for t, w in weights.items())
+        
+        # Optional: Normalize by the total potential weight to keep raw value in a predictable range
+        weight_sum = sum(abs(w) for w in weights.values())
+        normalized_raw = raw / weight_sum if weight_sum > 0 else raw
+        
+        return math.tanh(normalized_raw) # Squash to [-1, 1] for stability
 
     def should(self, decision_key: str, threshold: float = 0.0) -> bool:
         """Boolean decision helper: True when score exceeds threshold."""

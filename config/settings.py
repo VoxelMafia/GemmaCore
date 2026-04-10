@@ -12,8 +12,8 @@ from typing import Dict, List
 class ModelConfig:
     name: str = os.getenv("GEMMACORE_MODEL", "gemma3:4b")
     base_url: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-    temperature: float = float(os.getenv("GEMMACORE_TEMP", "0.8"))
-    num_ctx: int = int(os.getenv("GEMMACORE_CTX", "8192"))
+    temperature: float = float(os.getenv("GEMMACORE_TEMPERATURE", "0.7"))
+    num_ctx: int = int(os.getenv("GEMMACORE_CTX", "4096"))
     max_retries: int = int(os.getenv("GEMMACORE_RETRIES", "3"))
     retry_delay: float = float(os.getenv("GEMMACORE_RETRY_DELAY", "3.0"))
 
@@ -41,19 +41,17 @@ class SkillPermissions:
     """Permission levels: 0=free, 1=notify, 2=require_approval"""
     file_read: int = 0
     file_write: int = 2
-    browser_search: int = 1
-    browser_navigate: int = 1
     memory_read: int = 0
     memory_write: int = 0
-    academic_search: int = 0
+    academic_search: int = 2
 
 
 @dataclass
 class AgentConfig:
-    max_iterations: int = int(os.getenv("GEMMACORE_MAX_ITER", "5"))
+    max_iterations: int = int(os.getenv("GEMMACORE_MAX_ITER", "10"))
     headless_browser: bool = os.getenv("GEMMACORE_HEADLESS", "true").lower() == "true"
     require_approval: bool = os.getenv("GEMMACORE_APPROVAL", "true").lower() == "true"
-    context_window_limit: int = int(os.getenv("GEMMACORE_WINDOW_LIMIT", "12000"))
+    context_window_limit: int = int(os.getenv("GEMMACORE_WINDOW_LIMIT", "8000"))
     log_path: str = os.getenv("GEMMACORE_LOG_PATH", "./data/logs/agent.log")
     trace_path: str = os.getenv("GEMMACORE_TRACE_PATH", "./data/logs/trace.jsonl")
     workspace_path: str = os.getenv("GEMMACORE_WORKSPACE", "./workspace")

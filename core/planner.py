@@ -65,26 +65,6 @@ class Planner:
     def _extract_options(self, text: str) -> List[PlanOption]:
         options: List[PlanOption] = []
 
-        # 1. NAVIGATE command logic
-        if re.search(r"NAVIGATE:", text, re.I):
-            url_match = re.search(r"https?://[^\s`<>\"'\)\]\}]+", text)
-            if url_match:
-                url = url_match.group(0).strip("`'\"().,[]{} ")
-                already_visited = url in self.state.attempted_urls
-                confidence = 0.55 if not already_visited else 0.10
-                
-                # Personality influence: Curiosity boosts NAVIGATE
-                confidence += self.personality.score("explore_vs_exploit") * 0.15
-                
-                options.append(PlanOption(
-                    action_type="NAVIGATE",
-                    skill_name="browser",
-                    payload={"url": url}, # FIXED: dictionary for skill
-                    confidence=min(confidence, 1.0),
-                    rationale="LLM explicitly requested URL navigation.",
-                    requires_approval=True,
-                ))
-
         # 2. SEARCH command logic
         search_match = re.search(r"SEARCH:\s*[:\s]*['\"\[]?(.*?)['\"\]]?(\n|$)", text, re.I)
         if search_match:
@@ -107,7 +87,8 @@ class Planner:
             ))
 
         # 3. WRITE command logic (The "Mission Complete" condition)
-        if "✍️" in text or "COMMAND: WRITE" in text.upper() or "Synthesizing" in text:
+        write_match = re.search(r"Action=WRITE", text, re.I)
+        if write_match:
             confidence = 0.85
             # Ensure we have enough data before writing
             if len(self.state.short_term_memory) < 3:
@@ -148,12 +129,12 @@ class Planner:
 
     def _fallback_option(self) -> PlanOption:
         """The emergency break-out action for loops."""
-        fallback_query = self.state.current_sub_goal or self.state.active_goal_str() or "AI Research"
+        fallback_query = self.state.current_sub_goal or self.state.active_goal_str()
         return PlanOption(
             action_type="SEARCH",
             skill_name="academic",
             payload={"query": fallback_query, "limit": 5},
-            confidence=0.30,
+            confidence=0.50,
             rationale="Fallback: no parseable command. Forcing new search to break loop.",
             requires_approval=False,
         )
