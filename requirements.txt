@@ -1,6 +1,28 @@
+# GemmaCore — Production Agent Runtime
+# Python 3.9+
+
+# LLM backend
 ollama
+
+# Vector memory (semantic retrieval)
 chromadb
+
+# Browser automation
 playwright
+
+# Desktop UI
 customtkinter
+
+# HTTP clients
 httpx
+requests
+
+# Data validation
+# (pydantic is optional — state.py uses dataclasses)
+
+# Testing
+pytest
+pytest-cov
+
+# Utilities
 psutil

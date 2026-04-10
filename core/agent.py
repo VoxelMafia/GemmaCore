@@ -1,88 +1,73 @@
-from core.loop import AgentLoop
-from core.memory import Memory
+"""
+core/agent.py — OperatorAgent: thin adapter between the UI and AgentCore.
+
+Exposes the same public API as the original agent.py so the UI needs
+minimal changes. All real logic lives in AgentCore.
+"""
+from __future__ import annotations
+from typing import Any, Optional
+
+from core.agent_core import AgentCore
 from core.approval import ApprovalSystem
-from utils.logger import log
-from utils.helpers import parse_goal_string
+from observability.logger import get_logger
+
+logger = get_logger("agent")
+
 
 class OperatorAgent:
-    def __init__(self, ui):
-        self.ui = ui
+    """
+    Thin façade over AgentCore.
 
-        self.goal = ""  # Or None, depending on your logic
-        # ... other initializations
-        # Initialize Memory (defaults to Ephemeral/In-Memory based on your updated memory.py)
-        self.memory = Memory()
+    The UI calls:  agent.start(metadata)  /  agent.stop()
+    The UI reads:  agent.approval  (for approval button wiring)
+    """
+
+    def __init__(self, ui=None):
+        self.ui = ui
+        self.core = AgentCore(ui=ui)
         self.approval = ApprovalSystem(ui)
 
-        self.loop = AgentLoop(self)
+        # Wire approval into core so the loop can gate on user input
+        self.core.approval = self.approval
 
+        # Legacy attribute aliases expected by the UI
+        self.memory = self.core.semantic        # SemanticMemory
         self.running = False
 
-    def start(self, metadata=None, start_auto_approve: bool = False):
-        """Starts the agent loop and ensures a clean memory session.
+    # ── Lifecycle ──────────────────────────────────────────────────────────────
 
-        Accepts either a plain goal string (backwards compatible) or a
-        metadata dict with keys: `primary_domain` and `intersection_domain`.
-        """
-        # Clear previous session state
-        self.memory.clear_session()
-        self.running = True  # mark running early
+    def start(self, metadata: Any = None, start_auto_approve: bool = True) -> None:
+        """Start the agent with a goal string, dict, or 'Autonomous'."""
+        self.running = True
+        self.core.state.running = True
 
-        # Normalize metadata vs legacy string
-        self.metadata = {}
-        if isinstance(metadata, dict):
-            self.metadata = metadata
-            # Build a convenience goal string for fallback logging
-            pd = metadata.get('primary_domain', '') or ''
-            idom = metadata.get('intersection_domain', '') or ''
-            combined = f"{pd} AND {idom}" if pd and idom else (pd or idom or "")
-            self.goal = combined
-        else:
-            # legacy string support: try to populate metadata from a simple
-            # string goal like "AI & Climate" or "A ∩ B" so other code
-            # relying on `agent.metadata` sees the correct domains.
-            goal_str = (metadata or "").strip()
-            self.goal = goal_str
-            try:
-                parsed = parse_goal_string(goal_str)
-                if parsed:
-                    # Only set metadata when we successfully extract at least primary
-                    if parsed.get('primary_domain'):
-                        self.metadata = {
-                            'primary_domain': parsed.get('primary_domain'),
-                            'intersection_domain': parsed.get('intersection_domain', '')
-                        }
-            except Exception:
-                # Keep metadata empty on any parse failure; fallback handling
-                # elsewhere will use `self.goal` string.
-                self.metadata = {}
+        if start_auto_approve:
+            self.approval.set_auto_approve(True)
 
-        # Pass metadata through to the loop for richer initialization
-        self.loop.set_goal(self.metadata if self.metadata else self.goal)
-        # Optionally enable auto-approve for the duration of this run.
-        try:
-            if start_auto_approve and hasattr(self, 'approval') and self.approval:
-                self.approval.set_auto_approve(True)
-        except Exception:
-            pass
+        goal_input = self._normalize_metadata(metadata)
+        self.core.start(goal_input, auto_approve=start_auto_approve)
+        logger.info(f"OperatorAgent started: {goal_input}")
 
-        self.loop.start()
-        log(f"Agent started with goal/metadata: {self.goal} / {self.metadata}")
-
-    def stop(self):
-        """Stops the agent execution."""
+    def stop(self) -> None:
         self.running = False
-        self.loop.stop()
-        log("Agent stopped")
-        # Ensure auto-approve is cleared when agent stops
+        self.core.stop()
         try:
-            if hasattr(self, 'approval') and self.approval:
-                self.approval.set_auto_approve(False)
+            self.approval.set_auto_approve(False)
         except Exception:
             pass
-        # Best-effort cleanup of any running browser skill created by the loop
-        try:
-            if hasattr(self.loop, 'browser') and self.loop.browser:
-                self.loop.browser.close()
-        except:
-            pass
+        logger.info("OperatorAgent stopped.")
+
+    # ── Helpers ────────────────────────────────────────────────────────────────
+
+    def _normalize_metadata(self, metadata: Any) -> Any:
+            """Accept dict, string, or None; normalize to something AgentCore understands."""
+            # 1. Handle Empty/Autonomous
+            if metadata is None or str(metadata).strip().lower() in ("", "autonomous"):
+                return "Autonomous"
+            
+            # 2. Handle Structured Dicts
+            if isinstance(metadata, dict):
+                return metadata
+                
+            # 3. Handle Plain Strings (Legacy & Direct)
+            return str(metadata).strip()
