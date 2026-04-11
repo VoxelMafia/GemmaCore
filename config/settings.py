@@ -13,8 +13,8 @@ class ModelConfig:
     name: str = os.getenv("GEMMACORE_MODEL", "gemma3:4b")
     base_url: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
     temperature: float = float(os.getenv("GEMMACORE_TEMPERATURE", "0.7"))
-    num_ctx: int = int(os.getenv("GEMMACORE_CTX", "4096"))
-    max_retries: int = int(os.getenv("GEMMACORE_RETRIES", "3"))
+    num_ctx: int = int(os.getenv("GEMMACORE_CTX", "2048"))
+    max_retries: int = int(os.getenv("GEMMACORE_RETRIES", "1"))
     retry_delay: float = float(os.getenv("GEMMACORE_RETRY_DELAY", "3.0"))
 
 
@@ -29,12 +29,11 @@ class MemoryConfig:
 
 @dataclass
 class PersonalityDefaults:
-    curiosity: float = 1.0
-    risk_tolerance: float = 0.40
-    persistence: float = 0.80
+    curiosity: float = 0.80
+    risk_tolerance: float = 0.10  # Lowered to prevent "guessing"
+    persistence: float = 0.90
     verbosity: float = 0.60
-    skepticism: float = 0.50
-
+    skepticism: float = 0.95      # CRANK THIS UP
 
 @dataclass
 class SkillPermissions:
@@ -48,9 +47,8 @@ class SkillPermissions:
 
 @dataclass
 class AgentConfig:
-    max_iterations: int = int(os.getenv("GEMMACORE_MAX_ITER", "10"))
-    headless_browser: bool = os.getenv("GEMMACORE_HEADLESS", "true").lower() == "true"
-    require_approval: bool = os.getenv("GEMMACORE_APPROVAL", "true").lower() == "true"
+    max_iterations: int = int(os.getenv("GEMMACORE_MAX_ITER", "1"))
+    require_approval: bool = os.getenv("GEMMACORE_APPROVAL", "true").lower() == "false"
     context_window_limit: int = int(os.getenv("GEMMACORE_WINDOW_LIMIT", "8000"))
     log_path: str = os.getenv("GEMMACORE_LOG_PATH", "./data/logs/agent.log")
     trace_path: str = os.getenv("GEMMACORE_TRACE_PATH", "./data/logs/trace.jsonl")

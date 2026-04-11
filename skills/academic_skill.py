@@ -74,9 +74,9 @@ class AcademicSkillWrapper(BaseSkill):
     def _search(self, query: str, limit: int = 5) -> List[Dict[str, Any]]:
         if self._agent and hasattr(self._agent, "ui") and self._agent.ui:
             self._agent.ui.log(f"🔬 API Search: {query}")
-
+        sanitized_query = query.replace("|", " ").replace("AND", " ").replace("OR", " ")
         url = "https://api.openalex.org/works"
-        params: Dict[str, Any] = {"search": query, "per_page": limit}
+        params: Dict[str, Any] = {"search": sanitized_query, "per_page": limit}
         if self._api_key:
             params["api_key"] = self._api_key
 
@@ -113,7 +113,7 @@ class AcademicSkillWrapper(BaseSkill):
                     "type": "Academic/Peer-Reviewed",
                 })
 
-            logger.info(f"OpenAlex: {len(results)} results for '{query}'")
+            logger.info(f"OpenAlex: {len(results)} results for '{sanitized_query}'")
             return results
 
         except Exception as exc:
@@ -130,5 +130,7 @@ class AcademicSkillWrapper(BaseSkill):
         for word, positions in inverted_index.items():
             for pos in positions:
                 words[pos] = word
-                
-        return " ".join(words[i] for i in sorted(words))
+        # In academic_skill.py -> _parse_abstract
+        # ... reconstruction logic ...
+        reconstructed = " ".join(words[i] for i in sorted(words))
+        return (reconstructed[:500] + '...') if len(reconstructed) > 500 else reconstructed

@@ -64,12 +64,14 @@ class MemoryOpsSkill(BaseSkill):
 
     # ── Private ────────────────────────────────────────────────────────────────
 
+    # Modified _store in memory_ops.py
     def _store(self, text: str) -> str:
         if not text.strip():
             return "Nothing to store."
         if self._agent and hasattr(self._agent, "semantic"):
             self._agent.semantic.store(text)
-        return f"Stored {len(text)} chars to semantic memory."
+            # Force a small "forgetting" delay or cleanup signal
+            return f"SUCCESS: Anchored to Long-Term Memory. Active buffer can now be cleared."
 
     def _retrieve(self, query: str, k: int = 5) -> str:
         if not query.strip():

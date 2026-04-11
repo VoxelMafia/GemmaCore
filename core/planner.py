@@ -68,19 +68,26 @@ class Planner:
         # 2. SEARCH command logic
         search_match = re.search(r"SEARCH:\s*[:\s]*['\"\[]?(.*?)['\"\]]?(\n|$)", text, re.I)
         if search_match:
-            query = search_match.group(1).strip("[]' ")
-            # Clean technical noise
-            query = re.sub(r"[\(\)]", "", query)
-            query = re.sub(r"\b(AND|OR)\b", "", query, flags=re.I).strip()
-            
+            raw_query = search_match.group(1).strip("[]' ")
+            # Strip JSON/dict noise that the LLM sometimes injects
+            raw_query = re.sub(r"\{[^}]*\}", "", raw_query)       # remove {..} fragments
+            raw_query = re.sub(r"\\+", " ", raw_query)             # remove backslashes
+            raw_query = re.sub(r"[\"\']+", "", raw_query)          # remove stray quotes
+            raw_query = re.sub(r"[\(\)]", "", raw_query)
+            raw_query = re.sub(r"\b(AND|OR)\b", " ", raw_query, flags=re.I)
+            raw_query = re.sub(r",\s*limit.*$", "", raw_query)     # strip stray ",limit:5"
+            query = " ".join(raw_query.split()).strip()[:200]       # collapse whitespace, hard cap
+
+            if not query:
+                query = self.state.current_sub_goal or self.state.active_goal_str()
+
             confidence = 0.70
-            # Personality influence: Skepticism boosts SEARCH validation
             confidence += self.personality.score("accept_low_quality_source") * -0.10
-            
+
             options.append(PlanOption(
                 action_type="SEARCH",
                 skill_name="academic",
-                payload={"query": query, "limit": 5}, # FIXED: dictionary for skill
+                payload={"query": query, "limit": 5},
                 confidence=min(confidence, 1.0),
                 rationale="LLM requested academic search for this query.",
                 requires_approval=False,
@@ -134,7 +141,7 @@ class Planner:
             action_type="SEARCH",
             skill_name="academic",
             payload={"query": fallback_query, "limit": 5},
-            confidence=0.50,
+            confidence=0.20,
             rationale="Fallback: no parseable command. Forcing new search to break loop.",
             requires_approval=False,
         )

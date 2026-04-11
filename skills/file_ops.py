@@ -74,17 +74,16 @@ class FileOpsSkill(BaseSkill):
                 if not self._request_permission(action, inputs):
                     return f"Permission Denied: User rejected the {action} request."
 
-                if action == "write_text":
-                    path = inputs.get("path")
-                    if not path: return "Error: 'path' is required for write_text."
-                    return self._write(path, inputs.get("content", ""))
-
+                # In skills/file_ops.py -> _run()
                 elif action == "save_document":
                     title = inputs.get("title")
+                    folder = inputs.get("folder", "")  # Capture folder
                     if not title: return "Error: 'title' is required for save_document."
-                    return self.save_document(title, inputs.get("content", ""))
+                    # Pass the folder to the method
+                    return self.save_document(title, inputs.get("content", ""), folder=folder)
 
                 elif action == "merge_and_clean":
+                    # The handler already receives 'inputs' which contains 'folder'
                     return self._handle_merge_and_clean(inputs)
             except PermissionError as pe:
                 return f"Permission Error: {str(pe)}"
@@ -92,6 +91,7 @@ class FileOpsSkill(BaseSkill):
                 return f"Error during {action}: {str(e)}"
         return f"Unknown or unauthorized action: {action}"
 
+    # In skills/file_ops.py -> _handle_merge_and_clean()
     def _handle_merge_and_clean(self, inputs: Dict[str, Any]) -> str:
         folder_name = inputs.get("folder", "")
         if not folder_name: return "Error: 'folder' is required for merge_and_clean."
@@ -104,7 +104,7 @@ class FileOpsSkill(BaseSkill):
 
         chapters = sorted([f for f in os.listdir(folder_path) if f.startswith("Chapter_")])
         if not chapters:
-            return "No chapters found starting with 'Chapter_' to merge."
+            return f"No chapters found in '{folder_name}' to merge."
 
         full_content = ""
         for snap in chapters:
@@ -112,12 +112,14 @@ class FileOpsSkill(BaseSkill):
             with open(file_full_path, 'r', encoding="utf-8") as f:
                 full_content += f.read() + "\n\n---\n\n"
         
-        self.save_document(output_title, full_content)
+        # FIX: Pass folder_name here so the merged doc goes into the topic folder
+        self.save_document(output_title, full_content, folder=folder_name)
         
+        # Cleanup chapters
         for snap in chapters:
             os.remove(os.path.join(folder_path, snap))
             
-        return f"Successfully merged {len(chapters)} chapters into '{output_title}' and cleaned up."
+        return f"Successfully merged {len(chapters)} chapters into '{folder_name}/{output_title}'."
 
     def _request_permission(self, action: str, inputs: Dict[str, Any]) -> bool:
         if not self._approval:
@@ -132,16 +134,24 @@ class FileOpsSkill(BaseSkill):
         logger.info(f"Requesting approval for {action} on {target}")
         return self._approval.request(request_msg)
 
-    def save_document(self, title: str, content: str, extension: str = ".md") -> str:
+    # In skills/file_ops.py
+    def save_document(self, title: str, content: str, folder: str = "", extension: str = ".md") -> str:
         clean = self._slugify(title)
         filename = f"{clean}{extension}"
+        
+        # Handle filename length limits
         if len(clean) > 64:
             short_hash = hashlib.md5(title.encode()).hexdigest()[:6]
             filename = f"{clean[:50]}-{short_hash}{extension}"
 
+        # Construct the final relative path
+        # This ensures slugify doesn't eat your directory slashes
+        relative_path = os.path.join(folder, filename) if folder else filename
+
         fm_date = datetime.utcnow().isoformat()
         front_matter = f"---\nauthor: GemmaCore Agent\ndate: {fm_date}\ntitle: {title}\n---\n\n"
-        return self._write(filename, front_matter + content)
+        
+        return self._write(relative_path, front_matter + content)
 
     def _read(self, path: str) -> str:
         try:

@@ -145,20 +145,40 @@ class AgentCore:
                 self.stm.clear()
                 self.semantic.clear_session() 
                 
-                # 3. Re-inject signal only
-                if "No relevant memory found" not in summary_text:
-                    # Re-store it so retrieve() works in the new session's perception
-                    self.semantic.store(f"PREVIOUS_RESEARCH_SUMMARY: {summary_text}")
+                # ── NEW: KNOWLEDGE BRIDGE RE-INDEXING ──
+                # Iterate through existing sources and re-inject them into the new session
+                if self.state.source_map:
+                    # 1. Sort by score so we only bridge the absolute best evidence
+                    sorted_sources = sorted(
+                        self.state.source_map.values(), 
+                        key=lambda x: x.get("score", 0), 
+                        reverse=True
+                    )
+                    
+                    # 2. Limit the bridge to the Top 3 most relevant sources to save VRAM
+                    top_sources = sorted_sources[:3]
+                    
+                    logger.info(f"[MEMORY] Bridging top {len(top_sources)} sources for Chapter Context.")
+                    
+                    for data in top_sources:
+                        # 3. Add a 'bridge' tag so the LLM knows this is historical data
+                        # Use a more compressed format to save tokens
+                        bridge_content = (
+                            f"HISTORICAL_CONTEXT: {data['content'][:300]}... "
+                            f"Ref: {data.get('anchor', 'SOURCE')} DOI: {data.get('doi')}"
+                        )
+                        self.semantic.store(bridge_content)
 
                 logger.info(f"[SYSTEM] Transitioning to {chapter}. Viable points retained.")
+                # 2. Reset chapter-specific state
+                self.state.attempted_urls = [] # Clear this to allow specific searches for the new chapter
+                
+                self._emit(f"Chapter {idx + 1}/{len(self.state.thesis_outline)}: {chapter}")
                 self.state.current_chapter_index = idx
                 self.state.current_chapter_title = chapter
                 self.state.iteration = 0
                 self.state.current_sub_goal = f"Deconstructing {chapter}"
-                self.state.source_map = {}
-
-                self._emit(f"Chapter {idx + 1}/{len(self.state.thesis_outline)}: {chapter}")
-
+                self.state.current_chapter_index = idx
                 # ── ITERATION LOOP ──
                 while self.state.iteration < settings.agent.max_iterations and self.state.running:
                     # ── RIGOR-LOOP BREAKER ──
@@ -175,6 +195,9 @@ class AgentCore:
                     time.sleep(random.uniform(0.4, 1.0))
 
                 # Synthesis phase for the completed chapter
+                # Before calling _phase_finalize_chapter():
+                    if len([s for s in self.state.source_map.values() if s.get('chapter') == self.state.current_chapter_title]) < 1:
+                        self._emit("⚠️ Warning: Fewer than 1 source found for this chapter. The synthesis may be weak.")
                 self._phase_finalize_chapter()
 
             # ── NEW: MERGE AND CLEAN THESIS ──
@@ -219,7 +242,6 @@ class AgentCore:
 
         # ── 4. PLANNING ──────────────────────────────────────────────────────
         s.set_status(AgentStatus.PLANNING)
-        # Planner instance is used directly here
         chosen = self.planner.interpret(raw_plan)
         sub_goal = self.planner.extract_sub_goal(raw_plan)
         if sub_goal:
@@ -235,12 +257,17 @@ class AgentCore:
                 logger.info("[ACTION] User rejected plan.")
                 return
 
-        result = self._phase_action(chosen)
+        # EXECUTION: Call the action phase
+        raw_result = self._phase_action(chosen)
+        
+        # SAFETY FIX: Ensure result is always a string to prevent 'NoneType' errors during slicing
+        result = str(raw_result) if raw_result is not None else "Action returned no output."
+        
         s.last_action_result = result
         self.tracer.record("ACTION", {
             "type": chosen.action_type,
             "payload": str(chosen.payload)[:120],
-            "result_excerpt": result[:200],
+            "result_excerpt": result[:200], # Safe now because result is a string
         })
         logger.info(f"[ACTION] {chosen.action_type} → {result[:80]}")
 
@@ -249,21 +276,20 @@ class AgentCore:
         reflection = self._phase_reflection(raw_plan, result)
         s.last_reflection = reflection
         self.tracer.record("RESULT", {"reflection_excerpt": reflection[:300]})
-        logger.info(f"[RESULT] {reflection[:120]}")
-
+        logger.info(f"[RESULT] {reflection}")
+        
         # ── 7. MEMORY UPDATE ─────────────────────────────────────────────────
         s.set_status(AgentStatus.UPDATING_MEMORY)
         self._phase_memory_update(reflection, chosen)
         self.tracer.record("REFLECTION", {"stored": True})
         logger.info("[REFLECTION] Memory updated.")
 
-        # Personality evolution from outcome
-        success = len(result) > 100 and "error" not in result.lower()
+        # Personality evolution and Failure Tracking
+        success = len(result) > 10 and "error" not in result.lower()
         self.personality.update_from_outcome("curiosity", success)
         self.personality.update_from_outcome("persistence", success)
         self.personality.apply_to_state(s)
 
-        # Track failures
         if not success:
             s.consecutive_failures += 1
         else:
@@ -353,28 +379,63 @@ class AgentCore:
         return self.llm.complete(planner_prompt(augmented, context))
     
     def _phase_action(self, chosen) -> str:
-        """Dispatch to the correct skill."""
         s = self.state
-
 
         if chosen.action_type == "SEARCH":
             academic = self.skills.get("academic")
-            papers = academic.execute({"query": chosen.payload})
+            search_key = str(chosen.payload.get("query", chosen.payload))
+            
+            # FIX 1: Allow re-searching if we are in a new chapter context
+            if search_key in s.attempted_urls:
+                logger.info(f"[ACTION] Skipping duplicate search: {search_key[:60]}")
+                return f"SYSTEM: Query '{search_key}' already attempted. Try more specific keywords like 'architecture', 'validation', or 'hyperparameters'."
+            
+            s.attempted_urls.append(search_key)
+            papers = academic.execute(chosen.payload)
+            
             if isinstance(papers, list) and papers:
                 parts = []
+                relevant_count = 0
+                
                 for p in papers:
                     purl = p.get("url") or f"doi:{p.get('doi', 'unknown')}"
+                    
+                    # FIX 2: Check relevance and title before storing
                     analysis = self._grade_evidence(purl, p["abstract"], is_api=True)
+                    
+                    # Add metadata to the analysis for the writer to use
+                    analysis["title"] = p.get("title")
+                    analysis["anchor"] = p.get("anchor")
+                    analysis["citation"] = p.get("citation_line")
+                    analysis["chapter"] = s.current_chapter_title # Tag by chapter!
+                    
                     s.source_map[purl] = analysis
-                    parts.append(f"DOI: {purl}\nAbstract: {p['abstract'][:800]}")
-                return "\n---\n".join(parts)
-            return "No papers found. Need to alter search terms."
+                    
+                    if analysis["is_relevant"]:
+                        relevant_count += 1
+                        # FIX 3: Smaller snippets for the loop, keep full data in source_map
+                        parts.append(f"FOUND {p['anchor']}: {p['title']}\nAbstract: {p['abstract'][:400]}...")
+                
+                self._emit(f"Search successful: Found {relevant_count} relevant papers out of {len(papers)}.")
+                return "\n---\n".join(parts) if parts else "Results found, but none passed the rigor threshold. Try technical terms."
+                
+            return "No papers found. Broaden search or check DOI status."
+            
+        # ── NEW: Fallback for non-SEARCH actions (REFLECT, WRITE, MEMORY, etc.) ──
+        if hasattr(chosen, "skill_name") and chosen.skill_name:
+            skill = self.skills.get(chosen.skill_name)
+            if skill and hasattr(skill, "execute"):
+                try:
+                    # Dynamically execute the skill and ensure a string is returned
+                    result = skill.execute(chosen.payload)
+                    return str(result) if result is not None else f"SYSTEM: Action {chosen.action_type} executed successfully but returned no output."
+                except Exception as e:
+                    logger.error(f"[ACTION] Skill execution failed: {e}", exc_info=True)
+                    return f"SYSTEM: Action failed during '{chosen.skill_name}' execution: {str(e)}"
 
-        elif chosen.action_type == "REFLECT":
-            return f"[REFLECTION PASS] Sub-goal: {chosen.payload}"
-
-        return "[NO ACTION TAKEN]"
-
+        # ── Ultimate Fallback to guarantee a string return ──
+        return f"SYSTEM: Action '{chosen.action_type}' executed but had no specific handler or output."
+    
     def _phase_reflection(self, plan: str, result: str) -> str:
         """LLM synthesizes findings into structured insight."""
         from ai.prompts import reflection_prompt
@@ -390,26 +451,36 @@ class AgentCore:
     def _phase_memory_update(self, reflection: str, chosen: Any) -> None:
         self.state.set_status(AgentStatus.UPDATING_MEMORY)
         
-        # 1. Store FULL reflection in Semantic Memory
-        self.semantic.store(reflection)
-
-        # 2. Compression for Short-Term Memory
-        if len(reflection) > 1200:
-            dense_memory = self._compress_memory(reflection)
-        else:
-            dense_memory = reflection
-
-        # 3. Push to STM
-        self.state.push_short_term(dense_memory)
+        # Check if the reflection is valid and verified
+        is_verified = '"HALLUCINATION_SHIELD": "PASSED"' in reflection
         
-        # 4. Record to Episodic Memory using correctly defined 'log'
+        if is_verified:
+            # 1. Store ONLY verified data in Semantic Memory
+            self.semantic.store(reflection)
+            
+            # 2. Extract Anchor for STM Pointer
+            match = re.search(r"\[REF_\d+\]", reflection)
+            anchor_id = match.group(0) if match else "NEW_DATA"
+            
+            # 3. Push ONLY the light-weight pointer to STM
+            self.state.push_short_term(f"Verified and Stored: {anchor_id}")
+            self._emit(f"✅ Verified {anchor_id} stored in long-term memory.")
+        else:
+            # If it fails, we don't store it, and we give the agent a "Failure" hint
+            self.state.push_short_term("Last search result FAILED the Hallucination Shield. Search terms were too broad or invalid.")
+            self._emit("⚠️ Discarded result: Failed Hallucination Shield or missing DOI.")
+
+        # 4. ALWAYS Clear Perceptions (This flushes the raw 'stack' out of the context window)
+        self.state.perceptions = [] 
+
+        # 5. Record to Episodic Log (The forensic trail)
         self.episodic.log(
             action_type=chosen.action_type,
             payload=str(chosen.payload),
-            result=dense_memory,
+            result=f"Status: {'Stored' if is_verified else 'Rejected'}",
             chapter=self.state.current_chapter_title,
             iteration=self.state.iteration,
-            success=True
+            success=is_verified
         )
 
     def _phase_finalize_chapter(self) -> None:

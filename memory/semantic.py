@@ -49,7 +49,7 @@ class SemanticMemory:
         except Exception:
             pass
 
-    def retrieve(self, query: str, k: int = 5) -> str:
+    def retrieve(self, query: str, k: int = 3) -> str:
         """
         Retrieve top-k semantically similar documents.
         Returns a newline-joined string (suitable for LLM prompts).
@@ -72,7 +72,8 @@ class SemanticMemory:
             safe_k = min(k, count)
             results = self._collection.query(query_texts=[query], n_results=safe_k)
             docs = results.get("documents", [[]])[0]
-            return "\n---\n".join(docs) if docs else "No relevant memory found."
+            verified_docs = [d for d in docs if "DOI:" in d or "[REF_" in d]
+            return "\n---\n".join(verified_docs) if verified_docs else "No relevant memory found."
         except Exception:
             return "Memory retrieval error."
 
