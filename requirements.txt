@@ -4,3 +4,4 @@ playwright
 customtkinter
 httpx
 psutil
+tavily-python
