@@ -3,7 +3,7 @@ import random
 import time
 import re
 import urllib.parse
-from config import HEADLESS_BROWSER
+from config import HEADLESS_BROWSER, TAVILY_API_KEY, SEARCH_PROVIDER
 from ai.llm import ask_llm
 from utils.url import normalize_url
 from utils import logger as ulogger
@@ -49,12 +49,39 @@ class BrowserSkill:
         
         self.page = self.context.new_page()
 
+    def _tavily_search(self, query, goal=None):
+        """Fast-path search via Tavily API. Returns result string or None on failure."""
+        try:
+            from tavily import TavilyClient
+            client = TavilyClient(api_key=TAVILY_API_KEY)
+            response = client.search(query=query, max_results=5, search_depth="basic")
+            links = []
+            for i, r in enumerate(response.get("results", [])):
+                links.append({"index": i, "title": r.get("title", ""), "url": r.get("url", "")})
+            if not links:
+                ulogger.log(f"Tavily search returned no results for '{query}'", level="INFO", component="Browser")
+                return None
+            choice = ask_llm(f"Goal: {goal or query}\nPick best index: {links}")
+            target = int(re.search(r'\d+', choice).group()) if re.search(r'\d+', choice) else 0
+            return self.navigate(links[target]["url"])
+        except Exception as e:
+            ulogger.log(f"Tavily search failed for '{query}': {repr(e)}", level="WARN", component="Browser")
+            return None
+
     def search(self, query, goal=None):
         """Semantic Search with automatic JS-Block recovery."""
         if not self.page or self.page.is_closed(): self._start_browser()
-        
+
         self.agent.ui.log(f"🌐 Searching: {query}")
-        
+
+        # Tavily fast-path: use when API key is set and provider is 'tavily'
+        if TAVILY_API_KEY and SEARCH_PROVIDER == "tavily":
+            ulogger.log(f"Using Tavily search for '{query}'", level="INFO", component="Browser")
+            result = self._tavily_search(query, goal)
+            if result is not None:
+                return result
+            ulogger.log("Tavily failed, falling back to DuckDuckGo", level="WARN", component="Browser")
+
         try:
             # 1. Try standard DDG first (Better for agent reasoning)
             self.page.goto("https://duckduckgo.com", wait_until="networkidle", timeout=15000)
