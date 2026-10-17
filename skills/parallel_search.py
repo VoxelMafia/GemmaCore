@@ -3,6 +3,7 @@
 import asyncio
 import json
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 
 import httpx
 
@@ -27,7 +28,12 @@ class ParallelSearch:
         """Return source URLs and excerpts for the existing reflection consumer."""
         if cancelled() or not query.strip():
             return ""
-        return asyncio.run(self._search_until_stopped(query, goal, cancelled))
+        # Sync Playwright keeps an asyncio loop active on the research thread
+        # after navigation. Run MCP on its own thread to avoid nesting loops.
+        with ThreadPoolExecutor(max_workers=1) as worker:
+            return worker.submit(
+                lambda: asyncio.run(self._search_until_stopped(query, goal, cancelled))
+            ).result()
 
     async def _search_until_stopped(self, query, goal, cancelled):
         task = asyncio.create_task(asyncio.wait_for(self._search(query, goal), timeout=30))

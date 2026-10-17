@@ -76,6 +76,15 @@ class SearchTests(unittest.TestCase):
         with self.transport(lambda r: self.response(r, result)):
             self.assertIn(SOURCE["url"], self.skill().search("climate"))
 
+    def test_search_with_an_event_loop_already_running(self):
+        # Sync Playwright leaves an active loop on the research thread after
+        # navigation. Search must still work, without nesting asyncio.run.
+        async def research_thread():
+            return self.skill().search("climate")
+        with self.transport():
+            self.assertIn(SOURCE["url"], asyncio.run(research_thread()))
+        self.assertEqual(len(self.requests), 3)
+
     def test_sse_notifications_and_reply(self):
         def handler(r):
             if json.loads(r.content)["method"] != "tools/call":
