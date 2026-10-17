@@ -3,21 +3,22 @@ import random
 import time
 import re
 import urllib.parse
-from config import HEADLESS_BROWSER
+from config import HEADLESS_BROWSER, WEB_SEARCH_PROVIDER
 from ai.llm import ask_llm
 from utils.url import normalize_url
 from utils import logger as ulogger
 
 class BrowserSkill:
-    def __init__(self, agent):
+    def __init__(self, agent, search_provider=None):
         self.agent = agent
+        self.search_provider = (WEB_SEARCH_PROVIDER if search_provider is None else search_provider).strip().lower()
+        self._parallel = None
         self._playwright = None
         self.browser = None
         self.context = None
         self.page = None
         self._visited_by_query = {}
-        # Initialize browser once at startup
-        self._start_browser()
+        # Start Chromium only when browser search or navigation needs it.
 
     def _start_browser(self):
         """Initializes a high-stealth playwright session."""
@@ -51,6 +52,25 @@ class BrowserSkill:
 
     def search(self, query, goal=None):
         """Semantic Search with automatic JS-Block recovery."""
+        if not getattr(self.agent, "running", True) or self.search_provider == "disabled":
+            return ""
+        if self.search_provider == "parallel":
+            from skills.parallel_search import ParallelSearch
+            if self._parallel is None:
+                self._parallel = ParallelSearch()
+            try:
+                self.agent.ui.log(f"🌐 Searching with Parallel: {query}")
+                return self._parallel.search(
+                    query, goal=goal,
+                    cancelled=lambda: not getattr(self.agent, "running", True),
+                )
+            except Exception as e:
+                ulogger.log(f"Parallel search failed: {repr(e)}", level="ERROR", component="Browser")
+                self.agent.ui.log("⚠️ Parallel search unavailable. See logs for details.")
+                return ""
+        if self.search_provider != "duckduckgo":
+            self.agent.ui.log(f"⚠️ Unknown web search provider: {self.search_provider}")
+            return ""
         if not self.page or self.page.is_closed(): self._start_browser()
         
         self.agent.ui.log(f"🌐 Searching: {query}")
@@ -104,6 +124,7 @@ class BrowserSkill:
         """Navigates with basic cleaning to look human."""
         try:
             url = normalize_url(url)
+            if not self.page or self.page.is_closed(): self._start_browser()
             self.page.goto(url, wait_until="domcontentloaded", timeout=20000)
             # Add a small delay to mimic reading and trigger lazy-loaders
             time.sleep(random.uniform(1, 2))
